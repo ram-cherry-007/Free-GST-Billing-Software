@@ -75,6 +75,30 @@ internal audit flagged.
   Each includes India-relevant clauses (TDS section, jurisdiction,
   Section 50 interest, etc.).
 
+### Installer & Windows security
+
+- **No more `powershell -Command "Invoke-WebRequest ..."` in the install
+  flow.** The previous installer auto-downloaded the Node.js MSI to
+  `%TEMP%` and ran `msiexec` against it — clean, but heuristic antivirus
+  routinely flags any .bat that fetches and runs an executable. We now
+  open the official nodejs.org download page in the user's browser
+  instead. Less scary, fewer false positives.
+- **Pre-flight check** in the installer: bail out early with a friendly
+  message if `package.json` isn't in the working folder (catches the
+  common "ran the .bat from Downloads instead of the extracted folder"
+  mistake).
+- **Up-front messaging** about no-admin-needed, no-HKLM-writes, no-data-
+  exfiltration, and a link to the GitHub source so users can verify the
+  script before running.
+- **`.gitattributes`** added to enforce CRLF on `*.bat`/`*.cmd`/`*.ps1`
+  and LF on JS/CSS/MD. Linux / Mac developers cloning the repo and
+  emailing the .bat to a Windows user will no longer ship a script that
+  cmd.exe refuses to run.
+- **SmartScreen / antivirus guidance** added to START HERE.txt and
+  [USER_GUIDE.md](./USER_GUIDE.md) — covers the blue "Windows protected
+  your PC" screen, the right-click → Properties → Unblock workaround for
+  Mark-of-the-Web, and antivirus exclusion paths.
+
 ### Notes for the income-tax helper
 
 [TAX_HELPER_PLAN.md](./TAX_HELPER_PLAN.md) remains the planning doc for

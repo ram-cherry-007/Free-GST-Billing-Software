@@ -269,6 +269,25 @@ feature came from a user named Apurba, for example).
 <a id="troubleshooting"></a>
 ## 8. Troubleshooting
 
+### Windows shows "Windows protected your PC" or my antivirus blocked the installer
+
+This is normal for free open-source apps that aren't code-signed. The
+installer is plain text — you can open it in Notepad and read every line
+before running. To proceed:
+
+- **SmartScreen blue screen** → click **More info** → **Run anyway**
+- **"File came from another computer"** → right-click `Install
+  FreeGSTBill.bat` → **Properties** → tick **Unblock** at the bottom → OK
+- **Antivirus quarantine** → add the project folder to your AV's exclusion
+  list, then re-run the installer
+
+The installer **does not** need admin rights, **does not** write to
+Program Files or HKLM, and **does not** auto-download executables (we open
+the nodejs.org page in your browser if Node.js is missing — you download
+the signed MSI yourself).
+
+Full source: <https://github.com/IamRamgarhia/Free-GST-Billing-Software>
+
 ### "Cannot connect to server" / blank page
 The local server isn't running. Run *Start FreeGSTBill.bat* again, or reboot
 (the server is set to auto-start on login). If that still doesn't work, open

@@ -21,6 +21,41 @@
      Allowed time: about 1-2 minutes on the first run.
      The app opens in your browser automatically when done.
 
+     The installer does NOT need admin rights and does NOT
+     write anything to Program Files or the Windows registry
+     (HKLM). Everything is installed under your user profile.
+
+  ---------------------------------------------------------
+
+
+  -------- IF WINDOWS SHOWS A SECURITY WARNING ------------
+
+  This is normal for free open-source apps that aren't code
+  signed (code-signing certificates cost ~$300/year, which
+  defeats the "free" part). Your data is safe.
+
+  "Windows protected your PC" blue screen?
+     -> Click  "More info"  then  "Run anyway"
+
+  "This file came from another computer and might be blocked"?
+     -> Right-click  Install FreeGSTBill.bat  ->  Properties
+     -> Tick the  Unblock  box at the bottom  ->  OK
+     -> Then double-click again.
+
+  Antivirus flagged the .bat file?
+     -> The script only:
+          a) checks if Node.js is installed
+          b) opens nodejs.org if it isn't (no auto-download)
+          c) runs "npm install" to fetch app dependencies
+          d) creates desktop / start-menu shortcuts
+        These are all standard installer actions, but heuristic
+        antivirus sometimes flags any script that creates
+        shortcuts. You can read every line of the .bat file
+        in Notepad before running it.
+
+  Full source code:
+     github.com/IamRamgarhia/Free-GST-Billing-Software
+
   ---------------------------------------------------------
 
 

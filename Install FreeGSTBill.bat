@@ -13,15 +13,46 @@ echo.
 echo  ========================================================
 echo.
 echo     One-time setup. Takes 1-2 minutes.
-echo     You will not be asked any questions.
+echo     You will NOT be asked for admin / UAC permissions
+echo     (we install everything to your user profile only).
 echo.
-echo     If you've never installed Node.js before,
-echo     this script installs it for you. Just wait.
+echo     If Windows shows a blue "Windows protected your PC"
+echo     screen, click "More info" then "Run anyway".
+echo     This is normal for free open-source apps that aren't
+echo     code-signed. The full source is on GitHub:
+echo       github.com/IamRamgarhia/Free-GST-Billing-Software
+echo.
+echo     What this installer will do:
+echo       1. Install Node.js (if you don't have it) via winget
+echo       2. Run "npm install" to fetch app dependencies
+echo       3. Build the app
+echo       4. Make a Desktop shortcut + Start Menu entry
+echo       5. Auto-start the local server when you log in
+echo.
+echo     What it will NOT do:
+echo       * No admin rights needed
+echo       * No data leaves your computer
+echo       * No telemetry, no signup, no account
+echo       * Nothing is written to Program Files or HKLM
 echo.
 echo  ========================================================
 echo.
 
 cd /d "%~dp0"
+
+:: ========================================
+:: Step 0: Verify we are in the project folder
+:: ========================================
+:: A misleading error people hit when they run Install.bat from
+:: somewhere it shouldn't be (e.g. Downloads). Catch it early.
+if not exist "package.json" (
+    echo  [!] Could not find package.json in the current folder.
+    echo      Make sure you extracted the ZIP and you're running
+    echo      this script from inside the extracted folder.
+    echo.
+    pause
+    exit /b 1
+)
 
 :: ========================================
 :: Step 1: Check / Install Node.js
@@ -70,40 +101,27 @@ if %errorlevel% neq 0 (
         )
     )
 
-    :: Fallback: download MSI installer directly
+    :: Fallback: open the official Node.js download page in the user's browser.
+    :: We deliberately don't auto-download the MSI here — antivirus heuristics often
+    :: flag .bat files that fetch and run executables. Letting the user grab the
+    :: signed MSI from nodejs.org themselves is safer AND less scary for non-tech
+    :: users than seeing a SmartScreen prompt for an MSI in their %TEMP% folder.
     echo.
-    echo         Automatic install not available. Downloading Node.js installer...
+    echo  [!] Automatic Node.js install is not available on this machine.
     echo.
-
-    set "NODE_MSI=%TEMP%\node-install.msi"
-    echo         Downloading Node.js LTS...
-    powershell -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = (Invoke-WebRequest -Uri 'https://nodejs.org/dist/latest-v22.x/' -UseBasicParsing).Links | Where-Object { $_.href -match 'x64\.msi$' } | Select-Object -First 1 -ExpandProperty href; Invoke-WebRequest -Uri ('https://nodejs.org/dist/latest-v22.x/' + $url) -OutFile '%NODE_MSI%' -UseBasicParsing; Write-Host 'Download complete' } catch { Write-Host 'DOWNLOAD_FAILED' }" 2>nul
-
-    if exist "%NODE_MSI%" (
-        echo         Running Node.js installer...
-        echo         (Follow the installer steps - click Next through all)
-        echo.
-        start /wait msiexec /i "%NODE_MSI%"
-        del "%NODE_MSI%" 2>nul
-        echo.
-        echo         Please close this window and run the installer again.
-        echo         (Windows needs to refresh the PATH to find Node.js)
-        echo.
-        pause
-        exit /b 0
-    ) else (
-        echo  [!] Could not download Node.js automatically.
-        echo.
-        echo      Please install Node.js manually:
-        echo        1. Go to: https://nodejs.org
-        echo        2. Download the LTS version
-        echo        3. Run the installer
-        echo        4. Run this installer again
-        echo.
-        start https://nodejs.org/en/download/
-        pause
-        exit /b 1
-    )
+    echo      Please install Node.js manually (it's quick and safe):
+    echo        1. We're opening https://nodejs.org/en/download/ for you.
+    echo        2. Download the "LTS" version (default Windows Installer).
+    echo        3. Run the downloaded MSI - just click Next through every step.
+    echo        4. Come back here and run Install FreeGSTBill.bat again.
+    echo.
+    echo      Why this isn't automated: antivirus sometimes flags scripts that
+    echo      download and run executables. Downloading from nodejs.org yourself
+    echo      avoids that, and the MSI is signed by Node.js Foundation.
+    echo.
+    start https://nodejs.org/en/download/
+    pause
+    exit /b 1
 )
 
 for /f "tokens=*" %%v in ('node -v') do set NODE_VER=%%v
