@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil } from 'lucide-react';
-import { getAllProfiles, saveProfile } from './store';
+import { getAllProfiles, saveProfile, getEnabledModules } from './store';
+import { isModuleEnabled } from './utils';
 import Dashboard from './components/Dashboard';
 import InvoiceGenerator from './components/InvoiceGenerator';
 import SettingsView from './components/SettingsView';
@@ -184,18 +185,34 @@ function App() {
     setCurrentView('new');
   };
 
+  // Pull the user's module preferences once per render. Re-mount happens
+  // when settings save, which triggers a re-render via the profile state.
+  const enabledModules = getEnabledModules();
+  const showIfModule = (moduleId) => isModuleEnabled(moduleId, enabledModules);
+
+  // If the user just disabled the module backing the current view, kick them to dashboard
+  // so they don't land on an empty page after toggling.
+  useEffect(() => {
+    const map = { new: 'invoicing', clients: 'clients', inventory: 'inventory', expenses: 'expenses', purchases: 'purchases', recurring: 'recurring', receipts: 'receipts', reports: 'reports', filing: 'gstReturns' };
+    const moduleForView = map[currentView];
+    if (moduleForView && !isModuleEnabled(moduleForView, enabledModules)) {
+      setCurrentView('dashboard');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, JSON.stringify(enabledModules)]);
+
   const navItems = [
-    { id: 'dashboard', icon: Home, label: 'Dashboard' },
-    { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice },
-    { id: 'clients', icon: Users, label: 'Clients' },
-    { id: 'inventory', icon: Package, label: 'Products' },
-    { id: 'expenses', icon: Wallet, label: 'Expenses' },
-    { id: 'purchases', icon: ShoppingCart, label: 'Purchases' },
-    { id: 'recurring', icon: RefreshCw, label: 'Recurring' },
-    { id: 'receipts', icon: Receipt, label: 'Receipts' },
-    { id: 'reports', icon: BarChart3, label: 'Reports' },
-    { id: 'filing', icon: BookOpen, label: 'GST Returns' },
-  ];
+    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard' },
+    { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing' },
+    { id: 'clients', icon: Users, label: 'Clients', module: 'clients' },
+    { id: 'inventory', icon: Package, label: 'Products', module: 'inventory' },
+    { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses' },
+    { id: 'purchases', icon: ShoppingCart, label: 'Purchases', module: 'purchases' },
+    { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring' },
+    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts' },
+    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports' },
+    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns' },
+  ].filter(item => showIfModule(item.module));
 
   if (serverDown) {
     return (

@@ -60,6 +60,21 @@ export const setRegionMode = (mode) => {
   apiFetch(`${API}/meta/regionMode`, { method: 'POST', body: JSON.stringify({ value: mode }) }).catch(() => {});
 };
 
+// ---- Enabled feature modules ----
+// Map of moduleId → bool. Missing keys fall back to the module's default.
+// Stored locally for instant boot; mirrored to server for backup/import.
+const MODULES_KEY = 'gst_enabledModules';
+export const getEnabledModules = () => {
+  try {
+    const raw = localStorage.getItem(MODULES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+};
+export const setEnabledModules = (map) => {
+  try { localStorage.setItem(MODULES_KEY, JSON.stringify(map || {})); } catch { /* ignore */ }
+  apiFetch(`${API}/meta/enabledModules`, { method: 'POST', body: JSON.stringify({ value: map || {} }) }).catch(() => {});
+};
+
 // ---- Invoice counter ----
 export const getNextInvoiceNumber = async (prefix = 'INV') => {
   const settings = await getInvoiceNumberSettings();

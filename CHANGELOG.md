@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] — 2026-04-30
+
+This release answers the user-prioritized roadmap items #4, #6, and #7 from
+[COMPETITOR_GAPS.md](./COMPETITOR_GAPS.md): TDS/TCS, GSTR-2B reconciliation,
+and direct GSTR JSON exports. Also a Modules page for turning off features
+you don't use, granular PDF field control, formattable Terms with
+business-type presets, and the interstate-purchase ITC routing fix the
+internal audit flagged.
+
+### Added — Compliance roadmap (items #4, #6, #7)
+
+- **TDS / TCS on invoices.** Per-invoice toggle in the Customize panel:
+  - **TCS** (Section 206C(1H), 52, etc.) is collected from the buyer and
+    *adds* to the invoice total. Default rate 0.1% per 206C(1H), editable.
+  - **TDS** (Section 194Q, 194C, 194J, 194I, 194H, 194O, 195, etc.) is
+    deducted by the buyer and shown as an *informational* line below
+    "Total Due" with a "Net Receivable" caption — the invoice total itself
+    is unchanged.
+  - 11 common TDS sections preset with default rates, plus a custom-rate
+    option. Both fields hidden for non-Indian profiles.
+- **GSTR-2B reconciliation.** New tab under GST Returns. Import the
+  GSTR-2B JSON downloaded from the GST portal; we match each entry against
+  your purchase records by supplier GSTIN + invoice number and flag:
+  - ✓ Matched
+  - ⚠ Amount mismatch (within ±₹1 tolerance)
+  - ⚠ Books only (you recorded it, supplier hasn't filed yet)
+  - ⚠ 2B only (supplier filed it, you forgot to record)
+  - Filterable summary chips, full diff table, CSV export of the result.
+- **GSTR-3B JSON export.** Direct upload format (schema v1.7) matching the
+  GSTN offline tool. Sits next to the existing GSTR-3B CSV button. GSTR-1
+  JSON export was already present and uses the same schema-compliant
+  output.
+
+### Added — Purchases & ITC
+
+- **Inter-state purchase flag** on each Purchase Bill. When ticked, the
+  supplier's IGST flows into IGST ITC in GSTR-3B Table 4(A) instead of
+  being incorrectly split CGST + SGST. Closes the ITC-routing gap flagged
+  in the v1.3.0 internal audit.
+
+### Added — UX & customization
+
+- **Modules page** (Settings → Modules). Group-based on/off toggles for
+  every feature: Sales & Invoicing, Directory, Purchases & Expenses, GST
+  & Tax, Reports, Integrations. Disabling a module hides it from the
+  sidebar and from related forms — your data is never touched. Core
+  modules (Dashboard, Clients, Invoicing, Settings) are locked on so the
+  app stays usable.
+- **Granular PDF field control.** The Customize panel now groups every
+  toggle by section: Header & branding, Client / Bill-to, Invoice meta,
+  Items table, Totals, Footer. New toggles: business name, business
+  address, business phone, business email, client phone, client email,
+  client address, invoice number, invoice date, unit column, rate column,
+  subtotal row, "Authorized Signatory" caption. Plus *Hide all* and
+  *Reset to default* buttons.
+- **Rich-text Terms & Notes.** Replaced the plain textarea with an inline
+  rich editor: bold, italic, underline, bullet/numbered lists, headings,
+  links, clear-formatting. Output is DOMPurify-sanitized and rendered as
+  HTML in the PDF.
+- **Terms presets by business type (India).** 13 starter templates the
+  user can drop in and edit:
+  Generic SME / Trader, Freelancer / Consultant, Manufacturer / Wholesale,
+  Retail Shop, Restaurant / Café, IT / Software Services, Construction /
+  Contractor, Medical / Healthcare, Educational Services, Transport /
+  Logistics, Real Estate / Rental, E-commerce Seller, Export / LUT.
+  Each includes India-relevant clauses (TDS section, jurisdiction,
+  Section 50 interest, etc.).
+
+### Notes for the income-tax helper
+
+[TAX_HELPER_PLAN.md](./TAX_HELPER_PLAN.md) remains the planning doc for
+the v1.5.x income-tax helper (bank-statement CSV import + ITR Filing
+Summary PDF). The IT Department portal accepts JSON only via authenticated
+browser uploads — there is no public API — so the realistic ceiling is a
+machine-readable summary the user pastes into the portal manually, plus
+optionally an ITR-4 Excel-utility-compatible JSON they upload by hand.
+
+---
+
 ## [1.3.0] — 2026-04-30
 
 Big release focused on (a) Apurba's unit-of-measure request from the

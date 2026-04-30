@@ -15,6 +15,7 @@ const emptyForm = {
   invoiceNumber: '',
   items: [{ ...emptyItem }],
   paymentStatus: 'Unpaid',
+  interstate: false, // true ⇒ supplier charged IGST; false ⇒ CGST + SGST. Routes ITC correctly in GSTR-3B.
   note: '',
 };
 
@@ -100,6 +101,7 @@ export default function PurchaseBills() {
       invoiceNumber: purchase.invoiceNumber || '',
       items: purchase.items && purchase.items.length > 0 ? purchase.items.map(i => ({ ...i })) : [{ ...emptyItem }],
       paymentStatus: purchase.paymentStatus || 'Unpaid',
+      interstate: !!purchase.interstate,
       note: purchase.note || '',
     });
     setEditingId(purchase.id);
@@ -134,6 +136,7 @@ export default function PurchaseBills() {
         totalTax: totals.tax,
         taxableAmount: totals.taxable,
         paymentStatus: form.paymentStatus,
+        interstate: !!form.interstate,
         note: form.note.trim(),
       };
       await savePurchase(purchase);
@@ -276,6 +279,19 @@ export default function PurchaseBills() {
                 <label className="form-label">Note (optional)</label>
                 <input type="text" className="form-input" value={form.note}
                   onChange={e => updateField('note', e.target.value)} placeholder="Any note..." />
+              </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!form.interstate}
+                    onChange={e => updateField('interstate', e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                  <span>
+                    <strong>Inter-state purchase</strong> — supplier charged IGST (different state)
+                    <span style={{ color: '#94a3b8', fontSize: '0.72rem', display: 'block' }}>
+                      Routes ITC to IGST in GSTR-3B instead of CGST + SGST. Tip: first 2 digits of supplier GSTIN = their state code.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
 

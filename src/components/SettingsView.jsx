@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { getProfile, saveProfile, exportAllData, importData, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode } from '../store';
-import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion } from '../utils';
+import { getProfile, saveProfile, exportAllData, importData, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode, getEnabledModules, setEnabledModules } from '../store';
+import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, FEATURE_GROUPS, isModuleEnabled } from '../utils';
 import { Save, Upload, Download, Plus, Trash2, Image, PenTool, Cloud, CloudOff, Building2, Hash, RefreshCw } from 'lucide-react';
 import { initGoogleDrive, isConnected, disconnect } from '../services/googleDrive';
 import { toast } from './Toast';
@@ -24,6 +24,19 @@ export default function SettingsView({ onSaved }) {
   const [updateInfo, setUpdateInfo] = useState(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [regionMode, setRegionModeState] = useState(getRegionMode());
+  const [enabledModules, setEnabledModulesState] = useState(getEnabledModules());
+
+  const toggleModule = (moduleId) => {
+    const next = { ...enabledModules, [moduleId]: !isModuleEnabled(moduleId, enabledModules) };
+    setEnabledModulesState(next);
+    setEnabledModules(next);
+  };
+
+  const resetModules = () => {
+    setEnabledModulesState({});
+    setEnabledModules({});
+    toast('Reset to default — all features visible', 'success');
+  };
   const fileInputRef = useRef(null);
   const logoInputRef = useRef(null);
   const sigInputRef = useRef(null);
@@ -232,6 +245,49 @@ export default function SettingsView({ onSaved }) {
         <div>
           <h1 className="page-title">Settings</h1>
           <p className="page-subtitle">Business profile, branding, integrations & data</p>
+        </div>
+      </div>
+
+      {/* ---- Modules / Features ---- */}
+      <div className="glass-panel p-6 mb-6">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div>
+            <h3 className="section-title" style={{ marginTop: 0, marginBottom: '0.25rem' }}>Modules</h3>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+              Turn off the features you don't need. They disappear from the sidebar and forms — your data stays untouched.
+            </p>
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={resetModules} style={{ fontSize: '0.78rem', padding: '0.35rem 0.7rem' }}>
+            Reset to default
+          </button>
+        </div>
+        <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
+          {FEATURE_GROUPS.map(group => (
+            <div key={group.id} style={{ padding: '0.85rem', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '0.15rem' }}>{group.label}</div>
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>{group.description}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                {group.modules.map(mod => {
+                  const enabled = isModuleEnabled(mod.id, enabledModules);
+                  // Hide India-only modules entirely when region is "international" — toggling
+                  // them on wouldn't have any effect.
+                  if (mod.indiaOnly && regionMode === 'international') return null;
+                  return (
+                    <label key={mod.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78rem', cursor: mod.core ? 'not-allowed' : 'pointer', opacity: mod.core ? 0.55 : 1 }}>
+                      <input type="checkbox" checked={enabled} disabled={mod.core}
+                        onChange={() => !mod.core && toggleModule(mod.id)}
+                        style={{ width: 15, height: 15, accentColor: 'var(--primary)', marginTop: '2px' }} />
+                      <span style={{ lineHeight: 1.35 }}>
+                        {mod.label}
+                        {mod.core && <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: '0.4rem' }}>(always on)</span>}
+                        {mod.indiaOnly && <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: '0.4rem' }} title="India-only feature">🇮🇳</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

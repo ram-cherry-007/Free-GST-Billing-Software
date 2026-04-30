@@ -13,22 +13,38 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const isIndia = (profile?.country || 'India') === 'India';
   const taxLabel = sellerCC.taxLabel || 'GST';
 
-  // Options with defaults
-  const showGST = options.showGST !== undefined ? options.showGST : typeConfig.showGST;
-  const showState = options.showState !== undefined ? options.showState : true;
-  const showGSTIN = options.showGSTIN !== undefined ? options.showGSTIN : true;
-  const showPlaceOfSupply = options.showPlaceOfSupply !== undefined ? options.showPlaceOfSupply : showGST;
-  const showHSN = options.showHSN !== undefined ? options.showHSN : true;
-  const showDiscount = options.showDiscount !== undefined ? options.showDiscount : true;
-  const showBankDetails = options.showBankDetails !== undefined ? options.showBankDetails : true;
-  const showUPI = options.showUPI !== undefined ? options.showUPI : true;
-  const showLogo = options.showLogo !== undefined ? options.showLogo : true;
-  const showSignature = options.showSignature !== undefined ? options.showSignature : true;
-  const showTerms = options.showTerms !== undefined ? options.showTerms : true;
-  const showNotes = options.showNotes !== undefined ? options.showNotes : true;
-  const showAmountWords = options.showAmountWords !== undefined ? options.showAmountWords : true;
-  const showDueDate = options.showDueDate !== undefined ? options.showDueDate : true;
-  const showItemQty = options.showItemQty !== undefined ? options.showItemQty : true;
+  // Options with defaults. Each toggle defaults to ON so old invoices keep rendering as
+  // before; users opt INTO hiding fields via Customize.
+  const opt = (key, fallback = true) => options[key] !== undefined ? options[key] : fallback;
+  const showGST = opt('showGST', typeConfig.showGST);
+  const showState = opt('showState');
+  const showGSTIN = opt('showGSTIN');
+  const showPlaceOfSupply = opt('showPlaceOfSupply', showGST);
+  const showHSN = opt('showHSN');
+  const showDiscount = opt('showDiscount');
+  const showBankDetails = opt('showBankDetails');
+  const showUPI = opt('showUPI');
+  const showLogo = opt('showLogo');
+  const showSignature = opt('showSignature');
+  const showSignatoryText = opt('showSignatoryText');
+  const showTerms = opt('showTerms');
+  const showNotes = opt('showNotes');
+  const showAmountWords = opt('showAmountWords');
+  const showDueDate = opt('showDueDate');
+  const showItemQty = opt('showItemQty');
+  const showItemUnit = opt('showItemUnit');
+  const showRateColumn = opt('showRateColumn');
+  const showSubtotal = opt('showSubtotal');
+  // Header / client meta — default ON
+  const showBusinessName = opt('showBusinessName');
+  const showBusinessAddress = opt('showBusinessAddress');
+  const showBusinessPhone = opt('showBusinessPhone');
+  const showBusinessEmail = opt('showBusinessEmail');
+  const showClientAddress = opt('showClientAddress');
+  const showClientPhone = opt('showClientPhone');
+  const showClientEmail = opt('showClientEmail');
+  const showInvoiceNumber = opt('showInvoiceNumber');
+  const showInvoiceDate = opt('showInvoiceDate');
   const customTitle = options.customTitle || typeConfig.title;
   const currencySymbol = options.currency || 'INR';
 
@@ -100,19 +116,21 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
           )}
         </div>
         <div style={{ textAlign: 'right' }}>
-          <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 0.25rem' }}>{profile?.businessName || 'Your Business'}</h2>
+          {showBusinessName && <h2 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 0.25rem' }}>{profile?.businessName || 'Your Business'}</h2>}
           <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.6 }}>
-            {profile?.address && <p style={{ margin: 0 }}>{profile.address}</p>}
-            {(profile?.city || profile?.pin) && <p style={{ margin: 0 }}>{[profile.city, profile.pin].filter(Boolean).join(' - ')}</p>}
+            {showBusinessAddress && profile?.address && <p style={{ margin: 0 }}>{profile.address}</p>}
+            {showBusinessAddress && (profile?.city || profile?.pin) && <p style={{ margin: 0 }}>{[profile.city, profile.pin].filter(Boolean).join(' - ')}</p>}
             {showState && profile?.state && <p style={{ margin: 0 }}>{profile.state}</p>}
             {showGSTIN && profile?.gstin && <p style={{ margin: 0 }}>{getCountryConfig(profile?.country).taxIdLabel}: {profile.gstin}</p>}
+            {showBusinessEmail && profile?.email && <p style={{ margin: 0 }}>{profile.email}</p>}
+            {showBusinessPhone && profile?.phone && <p style={{ margin: 0 }}>Ph: {profile.phone}</p>}
           </div>
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
         <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.78rem' }}>
-          <span><strong style={{ color: '#64748b' }}>No.</strong> {details?.invoiceNumber}</span>
-          <span><strong style={{ color: '#64748b' }}>Date</strong> {details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span>
+          {showInvoiceNumber && <span><strong style={{ color: '#64748b' }}>No.</strong> {details?.invoiceNumber}</span>}
+          {showInvoiceDate && <span><strong style={{ color: '#64748b' }}>Date</strong> {details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span>}
           {showDueDate && details?.dueDate && <span><strong style={{ color: '#64748b' }}>Due</strong> {new Date(details.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
         </div>
         {invoiceType === 'credit-note' && details?.originalInvoiceRef && (
@@ -129,20 +147,21 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
           {showLogo && profile?.logo && (
             <img src={profile.logo} alt="Logo" style={{ maxHeight: `${profile.logoHeight || 48}px`, maxWidth: '180px', objectFit: 'contain', marginBottom: '0.5rem', display: 'block' }} />
           )}
-          <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{profile?.businessName || 'Your Business'}</h2>
+          {showBusinessName && <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{profile?.businessName || 'Your Business'}</h2>}
           <div style={{ fontSize: '0.7rem', color: '#94a3b8', lineHeight: 1.6, marginTop: '0.25rem' }}>
-            {profile?.address && <p style={{ margin: 0 }}>{profile.address}</p>}
-            {(profile?.city || profile?.pin) && <p style={{ margin: 0 }}>{[profile.city, profile.pin].filter(Boolean).join(' - ')}</p>}
+            {showBusinessAddress && profile?.address && <p style={{ margin: 0 }}>{profile.address}</p>}
+            {showBusinessAddress && (profile?.city || profile?.pin) && <p style={{ margin: 0 }}>{[profile.city, profile.pin].filter(Boolean).join(' - ')}</p>}
             {showState && profile?.state && <p style={{ margin: 0 }}>{profile.state}</p>}
             {showGSTIN && profile?.gstin && <p style={{ margin: 0 }}>{getCountryConfig(profile?.country).taxIdLabel}: {profile.gstin}</p>}
-            {profile?.email && <p style={{ margin: 0 }}>{profile.email}</p>}
+            {showBusinessEmail && profile?.email && <p style={{ margin: 0 }}>{profile.email}</p>}
+            {showBusinessPhone && profile?.phone && <p style={{ margin: 0 }}>Ph: {profile.phone}</p>}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <h1 style={{ fontSize: '1.1rem', fontWeight: 700, color: accent, margin: '0 0 0.5rem', letterSpacing: '0.05em' }}>{customTitle}</h1>
           <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.8 }}>
-            <p style={{ margin: 0 }}>{details?.invoiceNumber}</p>
-            <p style={{ margin: 0 }}>{details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</p>
+            {showInvoiceNumber && <p style={{ margin: 0 }}>{details?.invoiceNumber}</p>}
+            {showInvoiceDate && <p style={{ margin: 0 }}>{details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</p>}
             {showDueDate && details?.dueDate && <p style={{ margin: 0 }}>Due: {new Date(details.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>}
           </div>
         </div>
@@ -170,22 +189,22 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
             <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>Against Invoice: <strong style={{ color: '#334155' }}>{details.originalInvoiceRef}</strong></p>
           )}
           <div className="inv-meta">
-            <div className="inv-meta-row"><span className="inv-meta-label">No.</span><span className="inv-meta-value">{details?.invoiceNumber}</span></div>
-            <div className="inv-meta-row"><span className="inv-meta-label">Date</span><span className="inv-meta-value">{details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span></div>
+            {showInvoiceNumber && <div className="inv-meta-row"><span className="inv-meta-label">No.</span><span className="inv-meta-value">{details?.invoiceNumber}</span></div>}
+            {showInvoiceDate && <div className="inv-meta-row"><span className="inv-meta-label">Date</span><span className="inv-meta-value">{details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}</span></div>}
             {showDueDate && details?.dueDate && (
               <div className="inv-meta-row"><span className="inv-meta-label">Due Date</span><span className="inv-meta-value">{new Date(details.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div>
             )}
           </div>
         </div>
         <div className="inv-header-right">
-          <h2 className="inv-business-name">{profile?.businessName || 'Your Business'}</h2>
+          {showBusinessName && <h2 className="inv-business-name">{profile?.businessName || 'Your Business'}</h2>}
           <div className="inv-business-details">
-            {profile?.address && <p>{profile.address}</p>}
-            {(profile?.city || profile?.pin) && <p>{[profile.city, profile.pin].filter(Boolean).join(' - ')}</p>}
+            {showBusinessAddress && profile?.address && <p>{profile.address}</p>}
+            {showBusinessAddress && (profile?.city || profile?.pin) && <p>{[profile.city, profile.pin].filter(Boolean).join(' - ')}</p>}
             {showState && profile?.state && <p>{profile.state}</p>}
-            {showGSTIN && profile?.gstin && <p>GSTIN: <strong>{profile.gstin}</strong></p>}
-            {profile?.email && <p>{profile.email}</p>}
-            {profile?.phone && <p>Ph: {profile.phone}</p>}
+            {showGSTIN && profile?.gstin && <p>{getCountryConfig(profile?.country).taxIdLabel}: <strong>{profile.gstin}</strong></p>}
+            {showBusinessEmail && profile?.email && <p>{profile.email}</p>}
+            {showBusinessPhone && profile?.phone && <p>Ph: {profile.phone}</p>}
           </div>
         </div>
       </div>
@@ -201,10 +220,12 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
           <h4 className="inv-section-label">BILL TO</h4>
           <p className="inv-party-name">{client?.name || 'Client Name'}</p>
           <div className="inv-party-details">
-            {client?.address && <p>{client.address}</p>}
-            {(client?.city || client?.pin) && <p>{[client.city, client.pin].filter(Boolean).join(' - ')}</p>}
+            {showClientAddress && client?.address && <p>{client.address}</p>}
+            {showClientAddress && (client?.city || client?.pin) && <p>{[client.city, client.pin].filter(Boolean).join(' - ')}</p>}
             {showState && client?.state && <p>{client.state}</p>}
             {showGSTIN && client?.gstin && <p>{getCountryConfig(profile?.country).taxIdLabel}: <strong>{client.gstin}</strong></p>}
+            {showClientEmail && client?.email && <p>{client.email}</p>}
+            {showClientPhone && client?.phone && <p>Ph: {client.phone}</p>}
           </div>
         </div>
         {showPlaceOfSupply && (
@@ -239,7 +260,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                   <th className="inv-th" rowSpan="2">Description</th>
                   {showHSN && <th className="inv-th inv-th-center" rowSpan="2">HSN/SAC</th>}
                   {showItemQty && <th className="inv-th inv-th-center" rowSpan="2">Qty</th>}
-                  <th className="inv-th inv-th-right" rowSpan="2">Rate</th>
+                  {showRateColumn && <th className="inv-th inv-th-right" rowSpan="2">Rate</th>}
                   {hasAnyDiscount && <th className="inv-th inv-th-right" rowSpan="2">Disc.</th>}
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>IGST</th>
                   <th className="inv-th inv-th-right" rowSpan="2">Amount</th>
@@ -256,7 +277,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                   <th className="inv-th" rowSpan="2">Description</th>
                   {showHSN && <th className="inv-th inv-th-center" rowSpan="2">HSN/SAC</th>}
                   {showItemQty && <th className="inv-th inv-th-center" rowSpan="2">Qty</th>}
-                  <th className="inv-th inv-th-right" rowSpan="2">Rate</th>
+                  {showRateColumn && <th className="inv-th inv-th-right" rowSpan="2">Rate</th>}
                   {hasAnyDiscount && <th className="inv-th inv-th-right" rowSpan="2">Disc.</th>}
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>CGST</th>
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>SGST</th>
@@ -277,7 +298,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                   <th className="inv-th" rowSpan="2">Description</th>
                   {showHSN && <th className="inv-th inv-th-center" rowSpan="2">HSN/SAC</th>}
                   {showItemQty && <th className="inv-th inv-th-center" rowSpan="2">Qty</th>}
-                  <th className="inv-th inv-th-right" rowSpan="2">Rate</th>
+                  {showRateColumn && <th className="inv-th inv-th-right" rowSpan="2">Rate</th>}
                   {hasAnyDiscount && <th className="inv-th inv-th-right" rowSpan="2">Disc.</th>}
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>{taxLabel}</th>
                   <th className="inv-th inv-th-right" rowSpan="2">Amount</th>
@@ -294,7 +315,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               <th className="inv-th">Description</th>
               {showHSN && <th className="inv-th inv-th-center">HSN/SAC</th>}
               {showItemQty && <th className="inv-th inv-th-center">Qty</th>}
-              <th className="inv-th inv-th-right">Rate</th>
+              {showRateColumn && <th className="inv-th inv-th-right">Rate</th>}
               {hasAnyDiscount && <th className="inv-th inv-th-right">Disc.</th>}
               <th className="inv-th inv-th-right">Amount</th>
             </tr>
@@ -316,8 +337,8 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                 <td className="inv-td inv-td-muted">{index + 1}</td>
                 <td className="inv-td inv-td-name">{item.name || '-'}</td>
                 {showHSN && <td className="inv-td inv-td-center inv-td-muted">{item.hsn || '-'}</td>}
-                {showItemQty && <td className="inv-td inv-td-center">{item.quantity}{item.unit ? ` ${item.unit}` : ''}</td>}
-                <td className="inv-td inv-td-right">{fmt(item.rate)}</td>
+                {showItemQty && <td className="inv-td inv-td-center">{item.quantity}{showItemUnit && item.unit ? ` ${item.unit}` : ''}</td>}
+                {showRateColumn && <td className="inv-td inv-td-right">{fmt(item.rate)}</td>}
                 {hasAnyDiscount && <td className="inv-td inv-td-right">{discount > 0 ? fmt(discount) : '-'}</td>}
                 {showGST && (
                   isIndia && isInterstate ? (
@@ -372,10 +393,12 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         </div>
 
         <div className="inv-totals">
-          <div className="inv-total-row">
-            <span>Subtotal</span>
-            <span>{fmt(totals.subtotal)}</span>
-          </div>
+          {showSubtotal && (
+            <div className="inv-total-row">
+              <span>Subtotal</span>
+              <span>{fmt(totals.subtotal)}</span>
+            </div>
+          )}
           {totals.totalDiscount > 0 && (
             <div className="inv-total-row" style={{ color: '#dc2626' }}>
               <span>Discount</span>
@@ -406,6 +429,12 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               </div>
             )
           )}
+          {totals.tcsAmount > 0 && (
+            <div className="inv-total-row">
+              <span>TCS{options.tcsSection ? ` (${options.tcsSection} @ ${options.tcsRate}%)` : ''}</span>
+              <span>{fmt(totals.tcsAmount)}</span>
+            </div>
+          )}
           {totals.roundOff !== undefined && totals.roundOff !== 0 && (
             <div className="inv-total-row" style={{ color: '#64748b', fontStyle: 'italic' }}>
               <span>Round-off</span>
@@ -422,6 +451,18 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               <span>{invoiceType === 'credit-note' ? 'Credit Amount' : 'Total Due'}</span>
               <span style={{ color: accent }}>{fmt(totals.total)}</span>
             </div>
+          )}
+          {totals.tdsAmount > 0 && (
+            <>
+              <div className="inv-total-row" style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '0.25rem', borderTop: '1px dashed #e2e8f0', paddingTop: '0.4rem' }}>
+                <span>Less: TDS{options.tdsSection ? ` (${options.tdsSection} @ ${options.tdsRate}%)` : ''}</span>
+                <span>− {fmt(totals.tdsAmount)}</span>
+              </div>
+              <div className="inv-total-row" style={{ fontWeight: 600, color: '#0f766e', fontSize: '0.78rem' }}>
+                <span>Net Receivable</span>
+                <span>{fmt(totals.netReceivable)}</span>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -447,26 +488,32 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               <p className="inv-terms">{formatExchangeRateLine(currencySymbol, options.exchangeRate, profile?.country === 'India' || !profile?.country ? 'INR' : sellerCC.currency)}</p>
             </div>
           )}
-          {showTerms && customTerms && (
-            <div className="inv-footer-block">
-              <h4 className="inv-section-label">TERMS & CONDITIONS</h4>
-              <div className="inv-terms">
-                {customTerms.split('\n').filter(l => l.trim()).map((line, i) => (
-                  <span key={i}>{line.trim()}{i < customTerms.split('\n').filter(l => l.trim()).length - 1 ? ' | ' : ''}</span>
-                ))}
+          {/* Terms and notes accept rich HTML; same DOMPurify sanitization the extraSections
+              block uses, which keeps b/i/u/lists/links/headings and strips everything else. */}
+          {(() => {
+            const termsHtml = customTerms ? DOMPurify.sanitize(customTerms) : '';
+            const hasTerms = termsHtml && termsHtml.replace(/<[^>]*>/g, '').trim();
+            return showTerms && hasTerms ? (
+              <div className="inv-footer-block">
+                <h4 className="inv-section-label">TERMS & CONDITIONS</h4>
+                <div className="inv-terms inv-rich" dangerouslySetInnerHTML={{ __html: termsHtml }} />
               </div>
-            </div>
-          )}
-          {showNotes && customNotes && (
-            <div className="inv-footer-block">
-              <h4 className="inv-section-label">NOTES / REMARKS</h4>
-              <p className="inv-terms">{customNotes}</p>
-            </div>
-          )}
+            ) : null;
+          })()}
+          {(() => {
+            const notesHtml = customNotes ? DOMPurify.sanitize(customNotes) : '';
+            const hasNotes = notesHtml && notesHtml.replace(/<[^>]*>/g, '').trim();
+            return showNotes && hasNotes ? (
+              <div className="inv-footer-block">
+                <h4 className="inv-section-label">NOTES / REMARKS</h4>
+                <div className="inv-terms inv-rich" dangerouslySetInnerHTML={{ __html: notesHtml }} />
+              </div>
+            ) : null;
+          })()}
         </div>
         {showSignature && profile?.signature && (
           <div className="inv-signature">
-            <p className="inv-sig-label">Authorized Signatory</p>
+            {showSignatoryText && <p className="inv-sig-label">Authorized Signatory</p>}
             <img src={profile.signature} alt="Signature" style={{
               maxHeight: '60px', maxWidth: '180px', objectFit: 'contain',
               display: 'block', marginLeft: 'auto', marginBottom: '0.4rem'

@@ -1396,6 +1396,18 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 .inv-extra-content h4, .inv-extra-content h5 { margin: 0.75rem 0 0.35rem; color: #1e293b; }
 .inv-extra-content strong, .inv-extra-content b { font-weight: 600; }
 
+/* Rich-text Terms & Notes: same look as the extra-section content but shown inside
+   the small footer block — slightly tighter spacing. */
+.inv-rich p { margin: 0 0 0.35rem; }
+.inv-rich p:last-child { margin-bottom: 0; }
+.inv-rich ul, .inv-rich ol { margin: 0.25rem 0 0.35rem 1.25rem; padding: 0; }
+.inv-rich li { margin-bottom: 0.15rem; }
+.inv-rich h1, .inv-rich h2, .inv-rich h3, .inv-rich h4, .inv-rich h5 { margin: 0.4rem 0 0.2rem; font-size: 0.8rem; color: #1e293b; }
+.inv-rich strong, .inv-rich b { font-weight: 600; }
+.inv-rich em, .inv-rich i { font-style: italic; }
+.inv-rich u { text-decoration: underline; }
+.inv-rich a { color: var(--primary, #1e40af); }
+
 /* Extra section editor */
 .extra-section-editor {
   background: var(--primary-light);

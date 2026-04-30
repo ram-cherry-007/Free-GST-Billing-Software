@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileText, Download, Upload, ExternalLink, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, BookOpen, BarChart3 } from 'lucide-react';
 import { getAllBills, getAllExpenses, getAllPurchases, getProfile } from '../store';
 import { formatCurrency, INVOICE_TYPES, calculateLineItemTax, getStateCode, formatDateGST, getFilingPeriod } from '../utils';
@@ -45,6 +45,105 @@ function computeItemTaxSplit(item, isInterState, taxInclusive = false) {
 
 function getTaxableAmount(totals) {
   return totals?.taxableAmount ?? ((totals?.subtotal || 0) - (totals?.totalDiscount || 0));
+}
+
+// ========== GSTR-2B reconciliation helpers ==========
+// Normalises an invoice number for fuzzy matching: uppercase, strip non-alphanumeric.
+function normInv(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+// Given the raw GSTR-2B JSON `data` block and the user's purchase records, return
+// a flat array of reconciliation rows with status: matched | amount_mismatch |
+// book_only | twob_only.
+function buildReconciliation(twoBData, purchases) {
+  if (!twoBData) return [];
+  const twoBSuppliers = twoBData.docdata?.b2b || twoBData.b2b || [];
+  const rows = [];
+
+  // Build a quick-lookup map for the user's purchases keyed on (supplier GSTIN, normalized invoice no.)
+  const bookByKey = new Map();
+  (purchases || []).forEach(p => {
+    const key = `${(p.supplierGstin || '').toUpperCase()}::${normInv(p.invoiceNumber)}`;
+    bookByKey.set(key, p);
+  });
+
+  // Track which book entries we've already matched so we can find leftover "book-only"
+  const matchedBookKeys = new Set();
+
+  twoBSuppliers.forEach(sup => {
+    const ctin = (sup.ctin || '').toUpperCase();
+    const supName = sup.trdnm || '';
+    (sup.inv || []).forEach(inv => {
+      const key = `${ctin}::${normInv(inv.inum)}`;
+      const book = bookByKey.get(key);
+      const twoBVal = Number(inv.val || 0);
+      const twoBTaxable = (inv.items || []).reduce((s, it) => s + Number(it.txval || 0), 0);
+      const twoBIgst = (inv.items || []).reduce((s, it) => s + Number(it.igst || 0), 0);
+      const twoBCgst = (inv.items || []).reduce((s, it) => s + Number(it.cgst || 0), 0);
+      const twoBSgst = (inv.items || []).reduce((s, it) => s + Number(it.sgst || 0), 0);
+
+      if (!book) {
+        rows.push({
+          status: 'twob_only',
+          supplier: supName, ctin,
+          invoiceNumber: inv.inum, date: inv.dt,
+          twoBVal, twoBTaxable, twoBIgst, twoBCgst, twoBSgst,
+          bookVal: 0, bookTaxable: 0, bookIgst: 0, bookCgst: 0, bookSgst: 0,
+          itcAvailable: inv.itcavl !== 'N',
+        });
+        return;
+      }
+      matchedBookKeys.add(key);
+
+      const bookTotals = (book.items || []).reduce((acc, it) => {
+        const amount = (it.quantity || 0) * (it.rate || 0);
+        const tax = amount * (it.taxPercent || 0) / 100;
+        return { taxable: acc.taxable + amount, tax: acc.tax + tax, total: acc.total + amount + tax };
+      }, { taxable: 0, tax: 0, total: 0 });
+      const bookIgst = book.interstate ? bookTotals.tax : 0;
+      const bookCgst = book.interstate ? 0 : bookTotals.tax / 2;
+      const bookSgst = book.interstate ? 0 : bookTotals.tax / 2;
+
+      const valDiff = Math.abs(twoBVal - bookTotals.total);
+      const taxableDiff = Math.abs(twoBTaxable - bookTotals.taxable);
+      const status = (valDiff <= 1 && taxableDiff <= 1) ? 'matched' : 'amount_mismatch';
+
+      rows.push({
+        status,
+        supplier: supName || book.supplierName || '',
+        ctin,
+        invoiceNumber: inv.inum, date: inv.dt,
+        twoBVal, twoBTaxable, twoBIgst, twoBCgst, twoBSgst,
+        bookVal: bookTotals.total, bookTaxable: bookTotals.taxable,
+        bookIgst, bookCgst, bookSgst,
+        itcAvailable: inv.itcavl !== 'N',
+        valDiff, taxableDiff,
+      });
+    });
+  });
+
+  // Anything in our books that didn't match a 2B entry — supplier hasn't filed yet
+  (purchases || []).forEach(p => {
+    const key = `${(p.supplierGstin || '').toUpperCase()}::${normInv(p.invoiceNumber)}`;
+    if (matchedBookKeys.has(key)) return;
+    const totals = (p.items || []).reduce((acc, it) => {
+      const amount = (it.quantity || 0) * (it.rate || 0);
+      const tax = amount * (it.taxPercent || 0) / 100;
+      return { taxable: acc.taxable + amount, tax: acc.tax + tax, total: acc.total + amount + tax };
+    }, { taxable: 0, tax: 0, total: 0 });
+    rows.push({
+      status: 'book_only',
+      supplier: p.supplierName || '', ctin: (p.supplierGstin || '').toUpperCase(),
+      invoiceNumber: p.invoiceNumber, date: p.date,
+      twoBVal: 0, twoBTaxable: 0, twoBIgst: 0, twoBCgst: 0, twoBSgst: 0,
+      bookVal: totals.total, bookTaxable: totals.taxable,
+      bookIgst: p.interstate ? totals.tax : 0,
+      bookCgst: p.interstate ? 0 : totals.tax / 2,
+      bookSgst: p.interstate ? 0 : totals.tax / 2,
+      itcAvailable: false,
+    });
+  });
+
+  return rows;
 }
 
 // Inter-state status of a bill — follows place of supply when set explicitly,
@@ -378,6 +477,31 @@ export default function GSTReturns() {
   const [yearFilter, setYearFilter] = useState('');
   const [quarterFilter, setQuarterFilter] = useState('Q1');
   const [activeTab, setActiveTab] = useState('gstr1');
+  const [gstr2bData, setGstr2bData] = useState(null); // imported 2B JSON
+  const [gstr2bFilter, setGstr2bFilter] = useState('all'); // all | matched | mismatch | bookOnly | twoBOnly
+  const gstr2bInputRef = useRef(null);
+
+  const handleImport2B = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      // Accept both wrapped {data: ...} and bare formats
+      const root = json?.data || json;
+      if (!root?.docdata && !root?.b2b) {
+        toast('That doesn\'t look like a GSTR-2B JSON. Expected docdata.b2b array.', 'error');
+        return;
+      }
+      setGstr2bData(root);
+      const supplierCount = (root.docdata?.b2b || root.b2b || []).length;
+      toast(`Imported GSTR-2B for ${root.gstin || '?'} — ${supplierCount} suppliers`, 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Failed to parse GSTR-2B JSON', 'error');
+    }
+    if (gstr2bInputRef.current) gstr2bInputRef.current.value = '';
+  };
   const [guideTab, setGuideTab] = useState('regular');
   const [filingStatus, setFilingStatus] = useState(() => {
     try { return JSON.parse(localStorage.getItem('gst_filing_status') || '{}'); } catch { return {}; }
@@ -393,7 +517,7 @@ export default function GSTReturns() {
       const [b, e, p] = await Promise.all([getAllBills(), getAllExpenses(), getProfile()]);
       setBills(b); setExpenses(e); setProfile(p || {});
       // Purchases endpoint may not exist on older server versions
-      try { const pur = await getAllPurchases(); setPurchases(pur || []); } catch {}
+      try { const pur = await getAllPurchases(); setPurchases(pur || []); } catch { /* ignore — older servers don't have this endpoint */ }
     } catch { toast('Failed to load data', 'error'); }
   };
 
@@ -516,8 +640,14 @@ export default function GSTReturns() {
   }, { cgst: 0, sgst: 0, igst: 0 });
   // ITC from purchase bills
   const filteredPurchases = purchases.filter(p => filterByPeriod(p.date));
+  // ITC from purchases — route to IGST when the purchase is interstate (supplier charged IGST),
+  // otherwise split CGST/SGST. Without this, an interstate purchase incorrectly added its tax
+  // to CGST+SGST in the GSTR-3B Table 4(A).
   const itcFromPurchases = filteredPurchases.reduce((acc, p) => {
     const tax = p.totalTax || (p.items || []).reduce((s, i) => s + ((i.quantity || 0) * (i.rate || 0) * (i.taxPercent || 0)) / 100, 0);
+    if (p.interstate) {
+      return { cgst: acc.cgst, sgst: acc.sgst, igst: acc.igst + tax };
+    }
     const half = Math.round((tax / 2) * 100) / 100;
     return { cgst: acc.cgst + half, sgst: acc.sgst + (tax - half), igst: acc.igst };
   }, { cgst: 0, sgst: 0, igst: 0 });
@@ -673,6 +803,71 @@ export default function GSTReturns() {
       ['6.1 Tax Payable', '', netTax.igst.toFixed(2), netTax.cgst.toFixed(2), netTax.sgst.toFixed(2), (netTax.igst + netTax.cgst + netTax.sgst).toFixed(2)],
     ]);
     toast('GSTR-3B summary CSV downloaded', 'success');
+  };
+
+  // ========== GSTR-3B JSON Export (GSTN offline tool format, schema v1.7) ==========
+  // Matches the schema accepted by https://services.gst.gov.in/services/auth/dashboard
+  // Upload via: GST portal → Returns → GSTR-3B → Prepare Offline → Upload JSON
+  const exportGSTR3BJSON = () => {
+    if (filteredBills.length === 0 && filteredExpenses.length === 0) {
+      toast('No data to export for this period', 'warning');
+      return;
+    }
+    const gstin = profile.gstin || '';
+    const ret_period = filterMode === 'month'
+      ? String(parseInt(monthFilter) + 1).padStart(2, '0') + yearFilter
+      : getFilingPeriod(filteredBills[0]?.invoiceDate || filteredExpenses[0]?.date || new Date().toISOString());
+
+    // Outward supplies — currently we only emit Table 3.1(a). Zero-rated / nil / exempt
+    // require invoice-level categorization which is on the v1.5 roadmap; for now those
+    // rows are zero-filled rather than omitted (the portal expects the structure even
+    // if values are 0).
+    const sup_details = {
+      osup_det: {
+        txval: round2(grandTotals.taxable),
+        iamt: round2(grandTotals.igst),
+        camt: round2(grandTotals.cgst),
+        samt: round2(grandTotals.sgst),
+        csamt: 0,
+      },
+      osup_zero: { txval: 0, iamt: 0, csamt: 0 },
+      osup_nil_exmp: { txval: 0 },
+      isup_rev: { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 },
+      osup_nongst: { txval: 0 },
+    };
+
+    const itc_elg = {
+      itc_avl: [
+        { ty: 'IMPG', iamt: 0, camt: 0, samt: 0, csamt: 0 },
+        { ty: 'IMPS', iamt: 0, camt: 0, samt: 0, csamt: 0 },
+        { ty: 'ISRC', iamt: 0, camt: 0, samt: 0, csamt: 0 },
+        { ty: 'ISD',  iamt: 0, camt: 0, samt: 0, csamt: 0 },
+        { ty: 'OTH',
+          iamt: round2(itcFromExpenses.igst),
+          camt: round2(itcFromExpenses.cgst),
+          samt: round2(itcFromExpenses.sgst),
+          csamt: 0,
+        },
+      ],
+      itc_inelg: [
+        { ty: 'RUL', iamt: 0, camt: 0, samt: 0, csamt: 0 },
+        { ty: 'OTH', iamt: 0, camt: 0, samt: 0, csamt: 0 },
+      ],
+    };
+
+    const inward_sup = {
+      isup_details: [
+        { ty: 'GST',    inter: 0, intra: 0 },
+        { ty: 'NONGST', inter: 0, intra: 0 },
+      ],
+    };
+
+    const gstr3b = { gstin, ret_period, sup_details, itc_elg, inward_sup };
+    const blob = new Blob([JSON.stringify(gstr3b, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `GSTR3B_${gstin || 'export'}_${ret_period}.json`; a.click();
+    URL.revokeObjectURL(url);
+    toast('GSTR-3B JSON exported — upload to GST portal offline tool', 'success');
   };
 
   // ========== GSTR-1 JSON Export ==========
@@ -857,10 +1052,11 @@ export default function GSTReturns() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         {[
           { id: 'gstr1', label: 'GSTR-1', icon: BarChart3 },
           { id: 'gstr3b', label: 'GSTR-3B', icon: FileText },
+          { id: 'gstr2b', label: 'GSTR-2B Reconciliation', icon: CheckCircle },
           { id: 'guide', label: 'Filing Guide', icon: BookOpen },
         ].map(tab => (
           <button key={tab.id} className={`btn ${activeTab === tab.id ? 'btn-primary' : 'btn-secondary'}`}
@@ -1101,6 +1297,7 @@ export default function GSTReturns() {
           {/* Actions */}
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', alignItems: 'center' }}>
             <button className="btn btn-secondary" onClick={exportGSTR3B} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}><Download size={13} /> 3B CSV</button>
+            <button className="btn btn-primary" onClick={exportGSTR3BJSON} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}><Upload size={13} /> 3B JSON</button>
             {!periodFiling.gstr3b && (
               <button className="btn btn-secondary" onClick={() => markFiled('gstr3b')} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem', marginLeft: 'auto', color: '#059669', borderColor: '#bbf7d0' }}>
                 <CheckCircle size={13} /> Mark Filed
@@ -1209,6 +1406,154 @@ export default function GSTReturns() {
           </div>
         </>
       )}
+
+      {/* ===================== GSTR-2B RECONCILIATION TAB ===================== */}
+      {activeTab === 'gstr2b' && (() => {
+        const reconRows = buildReconciliation(gstr2bData, purchases);
+        const stats = reconRows.reduce((acc, r) => {
+          acc.total += 1;
+          acc[r.status] = (acc[r.status] || 0) + 1;
+          return acc;
+        }, { total: 0, matched: 0, amount_mismatch: 0, book_only: 0, twob_only: 0 });
+        const visibleRows = gstr2bFilter === 'all' ? reconRows : reconRows.filter(r => r.status === gstr2bFilter);
+
+        const exportReconCSV = () => {
+          if (reconRows.length === 0) { toast('Nothing to export', 'warning'); return; }
+          downloadCSV('GSTR2B_Reconciliation.csv',
+            ['Status', 'Supplier GSTIN', 'Supplier Name', 'Invoice No.', 'Invoice Date', '2B Value', 'Books Value', 'Diff', '2B Taxable', 'Books Taxable', '2B IGST', '2B CGST', '2B SGST', 'ITC Available'],
+            reconRows.map(r => [
+              r.status, r.ctin, r.supplier, r.invoiceNumber, r.date,
+              r.twoBVal.toFixed(2), r.bookVal.toFixed(2), (r.twoBVal - r.bookVal).toFixed(2),
+              r.twoBTaxable.toFixed(2), r.bookTaxable.toFixed(2),
+              r.twoBIgst.toFixed(2), r.twoBCgst.toFixed(2), r.twoBSgst.toFixed(2),
+              r.itcAvailable ? 'Y' : 'N',
+            ])
+          );
+          toast('Reconciliation CSV downloaded', 'success');
+        };
+
+        const STATUS_BADGES = {
+          matched:         { label: '✓ Matched',         color: '#059669', bg: '#ecfdf5' },
+          amount_mismatch: { label: '⚠ Amount mismatch', color: '#d97706', bg: '#fffbeb' },
+          book_only:       { label: '⚠ Books only',      color: '#dc2626', bg: '#fef2f2' },
+          twob_only:       { label: '⚠ 2B only',         color: '#7c3aed', bg: '#f5f3ff' },
+        };
+
+        return (
+          <>
+            {/* Help banner */}
+            <div className="glass-panel" style={{ padding: '0.85rem 1rem', marginBottom: '0.75rem', borderLeft: '3px solid var(--primary)' }}>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                <strong>How to use:</strong> Download your GSTR-2B JSON from the GST portal
+                (<a href="https://services.gst.gov.in/services/auth/dashboard" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>services.gst.gov.in</a>
+                {' '}→ Returns → GSTR-2B → Download JSON), then click <strong>Import 2B JSON</strong> below.
+                We match each 2B entry against your <em>Purchase Bills</em> by supplier GSTIN + invoice number, and flag mismatches so you can claim ITC accurately.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input ref={gstr2bInputRef} type="file" accept=".json,application/json" onChange={handleImport2B} style={{ display: 'none' }} />
+              <button className="btn btn-primary" onClick={() => gstr2bInputRef.current?.click()} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
+                <Upload size={13} /> Import 2B JSON
+              </button>
+              {gstr2bData && (
+                <>
+                  <button className="btn btn-secondary" onClick={exportReconCSV} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
+                    <Download size={13} /> Export reconciliation CSV
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => { setGstr2bData(null); setGstr2bFilter('all'); }} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
+                    Clear
+                  </button>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                    Imported for {gstr2bData.gstin || '?'} · period {gstr2bData.rtnprd || gstr2bData.fp || '?'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {!gstr2bData && (
+              <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <CheckCircle size={36} style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }} />
+                <p style={{ margin: 0, fontSize: '0.9rem' }}>Import your GSTR-2B JSON to reconcile against your purchase records.</p>
+                {purchases.length === 0 && (
+                  <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: '#d97706' }}>
+                    ⚠ You have no purchase bills recorded yet. Add some in the Purchases view first, otherwise everything will show as "2B only".
+                  </p>
+                )}
+              </div>
+            )}
+
+            {gstr2bData && (
+              <>
+                {/* Summary stats */}
+                <div className="glass-panel" style={{ padding: '0.85rem 1rem', marginBottom: '0.75rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
+                    {[
+                      { k: 'all', label: 'Total entries', count: stats.total, color: 'var(--text-primary)' },
+                      { k: 'matched', label: '✓ Matched', count: stats.matched, color: '#059669' },
+                      { k: 'amount_mismatch', label: '⚠ Mismatched', count: stats.amount_mismatch, color: '#d97706' },
+                      { k: 'book_only', label: '⚠ Books only', count: stats.book_only, color: '#dc2626' },
+                      { k: 'twob_only', label: '⚠ 2B only', count: stats.twob_only, color: '#7c3aed' },
+                    ].map(s => (
+                      <button key={s.k}
+                        onClick={() => setGstr2bFilter(s.k)}
+                        className={gstr2bFilter === s.k ? 'type-chip type-chip-active' : 'type-chip'}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.1rem', padding: '0.5rem 0.7rem', textAlign: 'left' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.label}</span>
+                        <strong style={{ fontSize: '1.05rem', color: s.color }}>{s.count}</strong>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="glass-panel" style={{ padding: 0, overflowX: 'auto' }}>
+                  <table className="data-table" style={{ width: '100%', minWidth: '900px' }}>
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Supplier</th>
+                        <th>Invoice No.</th>
+                        <th>Date</th>
+                        <th style={{ textAlign: 'right' }}>2B Value</th>
+                        <th style={{ textAlign: 'right' }}>Books Value</th>
+                        <th style={{ textAlign: 'right' }}>Diff</th>
+                        <th>ITC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.length === 0 ? (
+                        <tr><td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No entries match this filter.</td></tr>
+                      ) : visibleRows.map((r, i) => {
+                        const badge = STATUS_BADGES[r.status];
+                        const diff = r.twoBVal - r.bookVal;
+                        return (
+                          <tr key={i}>
+                            <td><span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', background: badge.bg, color: badge.color, fontWeight: 600, whiteSpace: 'nowrap' }}>{badge.label}</span></td>
+                            <td>
+                              <div style={{ fontWeight: 500 }}>{r.supplier || '—'}</div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{r.ctin}</div>
+                            </td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{r.invoiceNumber}</td>
+                            <td style={{ fontSize: '0.78rem' }}>{r.date || '—'}</td>
+                            <td style={{ textAlign: 'right' }}>{r.twoBVal > 0 ? formatCurrency(r.twoBVal) : '—'}</td>
+                            <td style={{ textAlign: 'right' }}>{r.bookVal > 0 ? formatCurrency(r.bookVal) : '—'}</td>
+                            <td style={{ textAlign: 'right', color: Math.abs(diff) > 1 ? '#dc2626' : 'var(--text-muted)', fontWeight: Math.abs(diff) > 1 ? 600 : 400 }}>
+                              {diff !== 0 ? (diff > 0 ? '+' : '') + formatCurrency(diff) : '—'}
+                            </td>
+                            <td style={{ fontSize: '0.78rem', color: r.itcAvailable ? '#059669' : '#94a3b8' }}>{r.itcAvailable ? '✓' : '✗'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
 
       {/* ===================== FILING GUIDE TAB ===================== */}
       {activeTab === 'guide' && (

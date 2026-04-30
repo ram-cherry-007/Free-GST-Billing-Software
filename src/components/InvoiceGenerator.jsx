@@ -3,7 +3,7 @@ import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronU
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode } from '../store';
-import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion } from '../utils';
+import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS } from '../utils';
 import { ensureToken, findOrCreateFolder, uploadPDF } from '../services/googleDrive';
 import DOMPurify from 'dompurify';
 import InvoicePreview from './InvoicePreview';
@@ -11,7 +11,7 @@ import ClientModal from './ClientModal';
 import { toast } from './Toast';
 
 // Rich text editor component that works with contentEditable properly
-function RichEditor({ value, onChange, placeholder }) {
+function RichEditor({ value, onChange, placeholder, toolbar = false }) {
   const ref = useRef(null);
   const isInitialized = useRef(false);
 
@@ -35,12 +35,40 @@ function RichEditor({ value, onChange, placeholder }) {
     }
   }, [onChange]);
 
+  // Toolbar formatting via document.execCommand. The existing innerHTML setters above
+  // already wrap user content with DOMPurify.sanitize(), and the toolbar only emits
+  // standard formatting tags that the same sanitizer keeps.
+  const applyFormat = (cmd, val) => {
+    if (ref.current) ref.current.focus();
+    document.execCommand(cmd, false, val);
+    if (ref.current) onChange(ref.current.innerHTML);
+  };
+  const btnStyle = { padding: '0.2rem 0.5rem', fontSize: '0.78rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', minWidth: '28px' };
+
   return (
-    <div ref={ref} contentEditable suppressContentEditableWarning
-      className="form-input rich-editor"
-      onInput={handleInput}
-      style={{ minHeight: '100px', whiteSpace: 'pre-wrap' }}
-      data-placeholder={placeholder} />
+    <>
+      {toolbar && (
+        <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
+          <button type="button" onClick={() => applyFormat('bold')}        title="Bold (Ctrl+B)"      style={{ ...btnStyle, fontWeight: 700 }}>B</button>
+          <button type="button" onClick={() => applyFormat('italic')}      title="Italic (Ctrl+I)"    style={{ ...btnStyle, fontStyle: 'italic' }}>I</button>
+          <button type="button" onClick={() => applyFormat('underline')}   title="Underline (Ctrl+U)" style={{ ...btnStyle, textDecoration: 'underline' }}>U</button>
+          <span style={{ width: 1, background: 'var(--border-color)', margin: '0 0.2rem' }} />
+          <button type="button" onClick={() => applyFormat('insertUnorderedList')} title="Bullet list"  style={btnStyle}>•&nbsp;List</button>
+          <button type="button" onClick={() => applyFormat('insertOrderedList')}   title="Numbered list" style={btnStyle}>1.&nbsp;List</button>
+          <span style={{ width: 1, background: 'var(--border-color)', margin: '0 0.2rem' }} />
+          <button type="button" onClick={() => applyFormat('formatBlock', '<h4>')}  title="Heading"   style={{ ...btnStyle, fontWeight: 700, fontSize: '0.85rem' }}>H</button>
+          <button type="button" onClick={() => applyFormat('formatBlock', '<p>')}   title="Paragraph" style={btnStyle}>¶</button>
+          <button type="button" onClick={() => { const url = window.prompt('Link URL:'); if (url) applyFormat('createLink', url); }} title="Insert link" style={btnStyle}>🔗</button>
+          <span style={{ width: 1, background: 'var(--border-color)', margin: '0 0.2rem' }} />
+          <button type="button" onClick={() => applyFormat('removeFormat')} title="Clear formatting" style={btnStyle}>✕</button>
+        </div>
+      )}
+      <div ref={ref} contentEditable suppressContentEditableWarning
+        className="form-input rich-editor"
+        onInput={handleInput}
+        style={{ minHeight: '100px', whiteSpace: 'pre-wrap' }}
+        data-placeholder={placeholder} />
+    </>
   );
 }
 
@@ -69,6 +97,12 @@ const DEFAULT_OPTIONS = {
   showDueDate: true,
   showItemQty: true,
   showRoundOff: false,
+  showTDS: false,
+  tdsSection: '194Q',
+  tdsRate: 0.1,
+  showTCS: false,
+  tcsSection: '206C(1H)',
+  tcsRate: 0.1,
   customTitle: '',
   currency: 'INR',
   exchangeRate: '',
@@ -405,9 +439,21 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     const sgst = isIndia ? (isInterstate ? 0 : taxTotal / 2) : 0;
     const igst = isIndia ? (isInterstate ? taxTotal : 0) : taxTotal;
 
-    const rawTotal = taxInclusive && showGST ? subtotal - totalDiscount : subtotal - totalDiscount + taxTotal;
-    const roundOff = invoiceOptions.showRoundOff ? calculateRoundOff(rawTotal) : 0;
-    const finalTotal = rawTotal + roundOff;
+    const taxableForTDS = subtotal - totalDiscount; // TDS/TCS apply to taxable value, not GST-inclusive total
+    const baseTotal = taxInclusive && showGST ? subtotal - totalDiscount : subtotal - totalDiscount + taxTotal;
+
+    // TCS is collected from the buyer and ADDED to the invoice total.
+    // TDS is deducted by the buyer from their payment to us — informational only,
+    // does NOT change the invoice total.
+    const round2 = (n) => Math.round(n * 100) / 100;
+    const tcsAmount = invoiceOptions.showTCS && Number(invoiceOptions.tcsRate) > 0
+      ? round2(taxableForTDS * Number(invoiceOptions.tcsRate) / 100) : 0;
+    const tdsAmount = invoiceOptions.showTDS && Number(invoiceOptions.tdsRate) > 0
+      ? round2(taxableForTDS * Number(invoiceOptions.tdsRate) / 100) : 0;
+
+    const totalBeforeRound = baseTotal + tcsAmount;
+    const roundOff = invoiceOptions.showRoundOff ? calculateRoundOff(totalBeforeRound) : 0;
+    const finalTotal = totalBeforeRound + roundOff;
 
     if (taxInclusive && showGST) {
       // Tax-inclusive: total is the subtotal minus discount (already includes tax)
@@ -418,7 +464,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         taxableAmount,
         cgst, sgst, igst,
         roundOff,
+        tcsAmount,
+        tdsAmount,
         total: finalTotal,
+        netReceivable: finalTotal - tdsAmount, // what we actually receive after buyer deducts TDS
         taxInclusive: true,
       });
     } else {
@@ -428,11 +477,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         taxableAmount: subtotal - totalDiscount,
         cgst, sgst, igst,
         roundOff,
+        tcsAmount,
+        tdsAmount,
         total: finalTotal,
+        netReceivable: finalTotal - tdsAmount,
         taxInclusive: false,
       });
     }
-  }, [items, client.state, profile?.state, profile?.country, showGST, taxInclusive, invoiceOptions.showRoundOff]);
+  }, [items, client.state, profile?.state, profile?.country, showGST, taxInclusive, invoiceOptions.showRoundOff, invoiceOptions.showTDS, invoiceOptions.tdsRate, invoiceOptions.showTCS, invoiceOptions.tcsRate]);
 
   // Warn when the seller's state is missing for Indian GST invoices — without it, the
   // interstate detection silently defaults to intrastate (CGST+SGST) which is a real money bug.
@@ -870,6 +922,64 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Stored on this invoice — historical reports stay accurate even if rates change.</small>
                   </div>
                 )}
+
+                {/* TCS — collected by seller, ADDS to total (Section 206C, Income Tax Act) */}
+                {(profile?.country || 'India') === 'India' && (
+                  <div className="form-group" style={{ marginBottom: '0.75rem', padding: '0.6rem', borderRadius: '6px', background: invoiceOptions.showTCS ? '#fef3c7' : 'transparent', border: invoiceOptions.showTCS ? '1px solid #fde68a' : '1px dashed transparent' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!invoiceOptions.showTCS}
+                        onChange={() => setInvoiceOptions(prev => ({ ...prev, showTCS: !prev.showTCS }))}
+                        style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                      <strong>TCS — Tax Collected at Source</strong>
+                      <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>(Adds to invoice total)</span>
+                    </label>
+                    {invoiceOptions.showTCS && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
+                        <select className="form-input" value={invoiceOptions.tcsSection || '206C(1H)'}
+                          onChange={(e) => {
+                            const code = e.target.value;
+                            const section = TCS_SECTIONS.find(s => s.code === code);
+                            setInvoiceOptions(prev => ({ ...prev, tcsSection: code, tcsRate: code === 'custom' ? prev.tcsRate : section?.rate ?? prev.tcsRate }));
+                          }}>
+                          {TCS_SECTIONS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                        </select>
+                        <input type="number" step="any" min="0" max="100" className="form-input"
+                          value={invoiceOptions.tcsRate}
+                          onChange={(e) => setInvoiceOptions(prev => ({ ...prev, tcsRate: e.target.value }))}
+                          placeholder="Rate %" />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TDS — deducted by buyer from payment, INFORMATIONAL on invoice */}
+                {(profile?.country || 'India') === 'India' && (
+                  <div className="form-group" style={{ marginBottom: '0.75rem', padding: '0.6rem', borderRadius: '6px', background: invoiceOptions.showTDS ? '#dbeafe' : 'transparent', border: invoiceOptions.showTDS ? '1px solid #bfdbfe' : '1px dashed transparent' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!invoiceOptions.showTDS}
+                        onChange={() => setInvoiceOptions(prev => ({ ...prev, showTDS: !prev.showTDS }))}
+                        style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                      <strong>TDS — Tax Deducted at Source</strong>
+                      <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>(Buyer deducts; informational)</span>
+                    </label>
+                    {invoiceOptions.showTDS && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
+                        <select className="form-input" value={invoiceOptions.tdsSection || '194Q'}
+                          onChange={(e) => {
+                            const code = e.target.value;
+                            const section = TDS_SECTIONS.find(s => s.code === code);
+                            setInvoiceOptions(prev => ({ ...prev, tdsSection: code, tdsRate: code === 'custom' ? prev.tdsRate : section?.rate ?? prev.tdsRate }));
+                          }}>
+                          {TDS_SECTIONS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                        </select>
+                        <input type="number" step="any" min="0" max="100" className="form-input"
+                          value={invoiceOptions.tdsRate}
+                          onChange={(e) => setInvoiceOptions(prev => ({ ...prev, tdsRate: e.target.value }))}
+                          placeholder="Rate %" />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                   <label className="form-label">PDF Style</label>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -898,33 +1008,81 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     ))}
                   </div>
                 </div>
-                <div className="options-grid">
-                  {[
+                {/* Field-level toggles, grouped. Lets the user hide any default field on the
+                    PDF without losing the data on the invoice itself. */}
+                {[
+                  { group: 'Header & branding', items: [
                     ['showLogo', 'Logo'],
-                    ['showSignature', 'Signature'],
-                    ['showGST', 'GST'],
-                    ['showState', 'State'],
-                    ['showGSTIN', 'GSTIN'],
+                    ['showBusinessName', 'Business name'],
+                    ['showBusinessAddress', 'Business address'],
+                    ['showBusinessPhone', 'Business phone'],
+                    ['showBusinessEmail', 'Business email'],
+                    ['showState', 'Business state'],
+                    ['showGSTIN', 'Tax ID (GSTIN/VAT/etc.)'],
+                  ]},
+                  { group: 'Client / Bill-to', items: [
+                    ['showClientAddress', 'Client address'],
+                    ['showClientPhone', 'Client phone'],
+                    ['showClientEmail', 'Client email'],
                     ['showPlaceOfSupply', 'Place of Supply'],
-                    ['showHSN', 'HSN/SAC'],
-                    ['showDiscount', 'Discount'],
-                    ['showItemQty', 'Qty Column'],
-                    ['showDueDate', 'Due Date'],
-                    ['showAmountWords', 'Amount in Words'],
-                    ['showBankDetails', 'Bank Details'],
-                    ['showUPI', 'UPI QR Code'],
+                  ]},
+                  { group: 'Invoice meta', items: [
+                    ['showInvoiceNumber', 'Invoice number'],
+                    ['showInvoiceDate', 'Invoice date'],
+                    ['showDueDate', 'Due date'],
+                  ]},
+                  { group: 'Items table', items: [
+                    ['showHSN', 'HSN/SAC column'],
+                    ['showItemQty', 'Qty column'],
+                    ['showItemUnit', 'Unit column'],
+                    ['showRateColumn', 'Rate column'],
+                    ['showDiscount', 'Discount column'],
+                    ['showGST', 'Tax % column (GST/VAT/etc.)'],
+                  ]},
+                  { group: 'Totals', items: [
+                    ['showSubtotal', 'Subtotal row'],
+                    ['showAmountWords', 'Amount in words'],
+                    ['showRoundOff', 'Round-off line'],
+                  ]},
+                  { group: 'Footer', items: [
+                    ['showBankDetails', 'Bank details'],
+                    ['showUPI', 'UPI QR (India only)'],
+                    ['showSignature', 'Signature block'],
+                    ['showSignatoryText', 'Show "Authorized Signatory" caption'],
                     ['showTerms', 'Terms & Conditions'],
                     ['showNotes', 'Notes / Remarks'],
-                    ['showRoundOff', 'Round-off Total'],
-                  ].map(([key, label]) => (
-                    <label key={key} className="option-toggle">
-                      {/* showRoundOff defaults to false (off); other toggles default to true (`!== false`) */}
-                      <input type="checkbox"
-                        checked={key === 'showRoundOff' ? !!invoiceOptions[key] : invoiceOptions[key] !== false}
-                        onChange={() => toggleOption(key)} />
-                      <span>{label}</span>
-                    </label>
-                  ))}
+                  ]},
+                ].map(section => (
+                  <div key={section.group} style={{ marginBottom: '0.6rem' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.3rem' }}>{section.group}</div>
+                    <div className="options-grid">
+                      {section.items.map(([key, label]) => {
+                        // showRoundOff defaults to false; everything else defaults to true.
+                        const checked = key === 'showRoundOff' ? !!invoiceOptions[key] : invoiceOptions[key] !== false;
+                        return (
+                          <label key={key} className="option-toggle">
+                            <input type="checkbox" checked={checked} onChange={() => toggleOption(key)} />
+                            <span>{label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+                  <button type="button" className="btn btn-secondary"
+                    onClick={() => {
+                      const allKeys = ['showLogo','showBusinessName','showBusinessAddress','showBusinessPhone','showBusinessEmail','showState','showGSTIN','showClientAddress','showClientPhone','showClientEmail','showPlaceOfSupply','showInvoiceNumber','showInvoiceDate','showDueDate','showHSN','showItemQty','showItemUnit','showRateColumn','showDiscount','showGST','showSubtotal','showAmountWords','showRoundOff','showBankDetails','showUPI','showSignature','showSignatoryText','showTerms','showNotes'];
+                      setInvoiceOptions(prev => { const out = { ...prev }; allKeys.forEach(k => { out[k] = false; }); return out; });
+                    }}
+                    style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }}>
+                    Hide all
+                  </button>
+                  <button type="button" className="btn btn-secondary"
+                    onClick={() => setInvoiceOptions(DEFAULT_OPTIONS)}
+                    style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }}>
+                    Reset to default
+                  </button>
                 </div>
               </div>
             )}
@@ -1209,25 +1367,49 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           {/* Terms */}
           <div className="glass-panel p-6 mb-6">
             <h3 className="section-title">Terms & Conditions</h3>
-            {termsTemplates.length > 0 && (
-              <div className="form-group">
-                <label className="form-label">Load from Template</label>
-                <select className="form-input" value={selectedTermsId} onChange={(e) => handleTermsSelect(e.target.value)}>
-                  <option value="">-- Custom --</option>
-                  {termsTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            <div style={{ display: 'grid', gridTemplateColumns: termsTemplates.length > 0 ? '1fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Insert preset (by business type)</label>
+                <select className="form-input" defaultValue=""
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    const preset = TERMS_PRESETS.find(p => p.id === e.target.value);
+                    if (!preset) return;
+                    if (customTerms && customTerms.replace(/<[^>]*>/g, '').trim()) {
+                      if (!confirm('Replace your current Terms with this preset? Your existing text will be lost.')) {
+                        e.target.value = ''; return;
+                      }
+                    }
+                    setCustomTerms(preset.body);
+                    setSelectedTermsId('');
+                    e.target.value = '';
+                    if (preset.body) toast(`Inserted "${preset.label}" preset`, 'success');
+                  }}>
+                  <option value="">— Pick a business type —</option>
+                  {TERMS_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
+                <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>India-specific starter wording. Edit freely.</small>
               </div>
-            )}
+              {termsTemplates.length > 0 && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Load saved template</label>
+                  <select className="form-input" value={selectedTermsId} onChange={(e) => handleTermsSelect(e.target.value)}>
+                    <option value="">— Custom —</option>
+                    {termsTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
             <div className="form-group">
-              <label className="form-label">Terms (appears on invoice)</label>
-              <textarea rows="5" className="form-input" value={customTerms}
-                onChange={(e) => { setCustomTerms(e.target.value); setSelectedTermsId(''); }}
+              <label className="form-label">Terms (appears on invoice — supports rich formatting)</label>
+              <RichEditor toolbar value={customTerms}
+                onChange={(v) => { setCustomTerms(v); setSelectedTermsId(''); }}
                 placeholder="Enter or paste your terms & conditions..." />
             </div>
             <div className="form-group">
               <label className="form-label">Notes / Remarks (optional)</label>
-              <textarea rows="3" className="form-input" value={customNotes}
-                onChange={(e) => setCustomNotes(e.target.value)}
+              <RichEditor toolbar value={customNotes}
+                onChange={(v) => setCustomNotes(v)}
                 placeholder="Project details, special instructions, additional notes..." />
             </div>
             <div className="form-group" style={{ background: '#fefce8', border: '1px dashed #ca8a04', borderRadius: 8, padding: '0.75rem 1rem' }}>
