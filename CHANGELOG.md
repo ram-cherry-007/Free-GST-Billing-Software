@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.3] — 2026-04-30
+
+In-app update notifications. Existing users now find out about new releases
+without having to manually check Settings → Updates.
+
+### Added — In-app update notifier
+
+- **Auto-poll for updates** on app start (after a 5-second cool-down) and
+  every 6 hours while open. Quietly skips when offline.
+- **Sidebar banner** — orange-pulse "Update to vX.Y.Z" button appears at
+  the bottom of the sidebar when GitHub has a newer version. A small
+  amber dot also shows on the Settings nav item as a secondary cue.
+- **Release notes modal** — clicking the banner opens a modal with the
+  full release notes (fetched from the GitHub Releases API), a clear
+  data-safety reassurance, a link to view the release on GitHub, and
+  the existing one-click *Update Now* button (triggers
+  `freegstbill-update://run`).
+- **Per-version dismissal** — *Skip this version* and *Remind me later*
+  buttons. Skipping a version remembers it in localStorage, so the
+  banner doesn't keep nagging, but a NEW release re-shows it. Reminders
+  reappear on next page load.
+- **Pre-update backup nudge** — modal calls out that exporting a backup
+  first is recommended, with a one-click jump to Settings → Data
+  Management.
+- **Server `/api/check-update` extended** to call the GitHub Releases
+  API in parallel and return release notes, URL, publish date, and tag.
+  4-second timeout via `AbortController` so a flaky network can't
+  block the response. Replaced naive string-comparison with a proper
+  numeric semver compare so `1.4.10` > `1.4.2` works.
+
+### Notes on data safety
+
+The existing `Update FreeGSTBill.bat` script already:
+1. Stops the server cleanly (taskkill on the listening port).
+2. Copies `data/`, `Saved Invoices/`, `Trash/` to `%TEMP%\freegstbill_backup` BEFORE pulling new code.
+3. Uses `robocopy /XD data "Saved Invoices" Trash` so the new code can never overwrite the data folders.
+4. Restores from the temp backup as a belt-and-suspenders step, even though step 3 already excluded them.
+5. Verifies the version actually changed; warns if not.
+
+The new modal surfaces this guarantee in plain English so non-technical
+users don't worry, and offers a one-click jump to *Export Backup…* if
+they want extra reassurance.
+
+---
+
 ## [1.4.2] — 2026-04-30
 
 Audit follow-up release tackling the harder bugs from the v1.3.0 internal
