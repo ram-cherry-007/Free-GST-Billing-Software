@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import DOMPurify from 'dompurify';
-import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine } from '../utils';
+import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine, getAccountById } from '../utils';
 
 const InvoicePreview = React.forwardRef(({ profile, client, details, items, totals, invoiceType = 'tax-invoice', customTerms, customNotes, extraSections = [], options = {} }, ref) => {
   const businessState = profile?.state?.trim().toLowerCase();
@@ -12,6 +12,12 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const sellerCC = getCountryConfig(profile?.country);
   const isIndia = (profile?.country || 'India') === 'India';
   const taxLabel = sellerCC.taxLabel || 'GST';
+
+  // Resolve the payment account once per render. Falls back to the synthesised
+  // legacy account (built from flat profile bank fields) when no array exists,
+  // so v1.4.3 invoices render byte-identical with no `selectedAccountId`.
+  const account = getAccountById(profile, options.selectedAccountId);
+  const showAccountLabel = options.showAccountLabel === true;
 
   // Options with defaults. Each toggle defaults to ON so old invoices keep rendering as
   // before; users opt INTO hiding fields via Customize.
@@ -78,17 +84,20 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
 
   const [qrDataUrl, setQrDataUrl] = useState('');
 
-  // Generate UPI QR code
+  // Generate UPI QR code. The VPA now comes from the selected payment account
+  // (so switching account swaps both bank block + QR), with fallback to the
+  // legacy flat profile.upiId for invoices that pre-date multi-account support.
+  const upiId = account?.upiId || profile?.upiId || '';
   useEffect(() => {
-    if (!showUPI || !profile?.upiId || !totals.total || currencySymbol !== 'INR') {
+    if (!showUPI || !upiId || !totals.total || currencySymbol !== 'INR') {
       setQrDataUrl('');
       return;
     }
-    const upiUrl = `upi://pay?pa=${encodeURIComponent(profile.upiId)}&pn=${encodeURIComponent(profile.businessName || '')}&am=${totals.total.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Payment for ${details?.invoiceNumber || 'Invoice'}`)}`;
+    const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(profile?.businessName || '')}&am=${totals.total.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Payment for ${details?.invoiceNumber || 'Invoice'}`)}`;
     QRCode.toDataURL(upiUrl, { width: 120, margin: 1, errorCorrectionLevel: 'M' })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
-  }, [showUPI, profile?.upiId, profile?.businessName, totals.total, details?.invoiceNumber, currencySymbol]);
+  }, [showUPI, upiId, profile?.businessName, totals.total, details?.invoiceNumber, currencySymbol]);
 
   const accentColors = {
     'tax-invoice': '#1e40af',
@@ -384,7 +393,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                 <img src={qrDataUrl} alt="UPI QR" style={{ width: '90px', height: '90px', borderRadius: '6px', border: '1px solid #e2e8f0' }} />
                 <div style={{ fontSize: '0.7rem', color: '#94a3b8', lineHeight: 1.5 }}>
                   <p style={{ margin: 0, color: '#94a3b8' }}>UPI ID:</p>
-                  <p style={{ margin: 0, color: '#334155', fontWeight: 600, fontSize: '0.75rem' }}>{profile.upiId}</p>
+                  <p style={{ margin: 0, color: '#334155', fontWeight: 600, fontSize: '0.75rem' }}>{upiId}</p>
                   <p style={{ margin: '0.25rem 0 0', color: '#94a3b8' }}>{fmt(totals.total)}</p>
                 </div>
               </div>
@@ -470,14 +479,22 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       {/* Footer */}
       <div className="inv-footer" style={pdfStyle !== 'classic' ? { padding: '1rem 2rem' } : {}}>
         <div className="inv-footer-left">
-          {showBankDetails && profile?.bankName && (
+          {/* Bank details render from the resolved payment account. Account fields
+              fall back to the flat profile fields when neither array entry nor flat
+              field exists — guarantees byte-identical PDFs for v1.4.3 invoices. */}
+          {showBankDetails && (account?.bankName || profile?.bankName) && (
             <div className="inv-footer-block">
               <h4 className="inv-section-label">BANK DETAILS</h4>
+              {showAccountLabel && account?.label && (
+                <p style={{ margin: '0 0 0.25rem', fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+                  Pay via: <strong style={{ color: '#334155' }}>{account.label}</strong>
+                </p>
+              )}
               <div className="inv-footer-details">
-                <p><span className="inv-detail-label">Bank:</span> {profile.bankName}</p>
-                <p><span className="inv-detail-label">A/C No:</span> {profile.accountNumber}</p>
-                {profile.ifsc && <p><span className="inv-detail-label">{sellerCC.bankLabel || 'IFSC'}:</span> {profile.ifsc}</p>}
-                {profile.swift && <p><span className="inv-detail-label">SWIFT/BIC:</span> {profile.swift}</p>}
+                <p><span className="inv-detail-label">Bank:</span> {account?.bankName || profile.bankName}</p>
+                <p><span className="inv-detail-label">A/C No:</span> {account?.accountNumber || profile.accountNumber}</p>
+                {(account?.ifsc || profile.ifsc) && <p><span className="inv-detail-label">{sellerCC.bankLabel || 'IFSC'}:</span> {account?.ifsc || profile.ifsc}</p>}
+                {(account?.swift || profile.swift) && <p><span className="inv-detail-label">SWIFT/BIC:</span> {account?.swift || profile.swift}</p>}
                 {profile.pan && isIndia && <p><span className="inv-detail-label">PAN:</span> {profile.pan}</p>}
               </div>
             </div>

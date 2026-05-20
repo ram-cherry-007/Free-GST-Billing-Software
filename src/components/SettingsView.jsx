@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { getProfile, saveProfile, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode, getEnabledModules, setEnabledModules } from '../store';
 import { ensureToken, findOrCreateFolder, uploadJSON } from '../services/googleDrive';
-import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, FEATURE_GROUPS, isModuleEnabled } from '../utils';
-import { Save, Upload, Download, Plus, Trash2, Image, PenTool, Cloud, CloudOff, Building2, Hash, RefreshCw } from 'lucide-react';
+import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, FEATURE_GROUPS, isModuleEnabled, getPaymentAccounts, createEmptyAccount, maskAccountNumber, reorderAccounts, setDefaultAccount, isValidUpiId } from '../utils';
+import { Save, Upload, Download, Plus, Trash2, Edit3, Image, PenTool, Cloud, CloudOff, Building2, Hash, RefreshCw } from 'lucide-react';
 import { initGoogleDrive, isConnected, disconnect } from '../services/googleDrive';
 import { toast } from './Toast';
 
@@ -64,6 +64,106 @@ export default function SettingsView({ onSaved }) {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setProfile(prev => ({ ...prev, [name]: value }));
+  };
+
+  // ---- Payment Accounts manager ----
+  // `editingAccount` = null ⇒ closed; an account object ⇒ form open for that
+  // account; a fresh `createEmptyAccount()` ⇒ Add new flow. Saving merges back
+  // into profile.paymentAccounts; profile.upiId/bankName/etc. are mirrored to
+  // the DEFAULT account on save so legacy code paths and v1.4.x backups keep
+  // working without a data migration.
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [accountUpiWarning, setAccountUpiWarning] = useState('');
+
+  const updateAccounts = (nextAccounts) => {
+    // Mirror the default account's fields onto the profile's flat bank/UPI
+    // fields. Means: a v1.4.x reader of the same profile.json still sees the
+    // current default account's details, and the existing flat-field code
+    // paths (e.g. legacy fallback in InvoicePreview) continue to work.
+    const def = nextAccounts.find(a => a.isDefault) || nextAccounts[0];
+    setProfile(prev => ({
+      ...prev,
+      paymentAccounts: nextAccounts,
+      ...(def ? {
+        bankName: def.bankName || '',
+        accountNumber: def.accountNumber || '',
+        ifsc: def.ifsc || '',
+        swift: def.swift || '',
+        upiId: def.upiId || '',
+      } : {}),
+    }));
+  };
+
+  const openAddAccount = () => {
+    const fresh = createEmptyAccount();
+    const existing = getPaymentAccounts(profile);
+    // First account auto-marks Primary so the user never sees a "no default" state.
+    if (existing.length === 0) fresh.isDefault = true;
+    setEditingAccount(fresh);
+    setAccountUpiWarning('');
+  };
+
+  const openEditAccount = (acc) => {
+    setEditingAccount({ ...acc });
+    setAccountUpiWarning('');
+  };
+
+  const cancelAccount = () => { setEditingAccount(null); setAccountUpiWarning(''); };
+
+  const saveAccountForm = () => {
+    if (!editingAccount) return;
+    const existing = getPaymentAccounts(profile).filter(a => a.id !== 'legacy');
+    const idx = existing.findIndex(a => a.id === editingAccount.id);
+    const next = idx >= 0 ? existing.map((a, i) => i === idx ? editingAccount : a) : [...existing, editingAccount];
+    // Enforce: exactly one default (or zero if list empty).
+    if (editingAccount.isDefault) {
+      next.forEach(a => { if (a.id !== editingAccount.id) a.isDefault = false; });
+    } else if (!next.some(a => a.isDefault) && next.length > 0) {
+      next[0].isDefault = true;
+    }
+    updateAccounts(next);
+    setEditingAccount(null);
+    setAccountUpiWarning('');
+    toast(idx >= 0 ? 'Account updated' : 'Account added', 'success');
+  };
+
+  const removeAccount = (acc) => {
+    if (!confirm(`Delete payment account "${acc.label || acc.bankName || 'this account'}"? Existing invoices that used it keep their PDFs.`)) return;
+    const next = getPaymentAccounts(profile).filter(a => a.id !== 'legacy' && a.id !== acc.id);
+    if (next.length > 0 && !next.some(a => a.isDefault)) next[0].isDefault = true;
+    updateAccounts(next);
+    toast('Account removed', 'success');
+  };
+
+  const markDefault = (acc) => {
+    const next = setDefaultAccount(getPaymentAccounts(profile).filter(a => a.id !== 'legacy'), acc.id);
+    updateAccounts(next);
+    toast(`Default → ${acc.label || acc.bankName || 'account'}`, 'success');
+  };
+
+  const toggleAccountActive = (acc) => {
+    const next = getPaymentAccounts(profile)
+      .filter(a => a.id !== 'legacy')
+      .map(a => a.id === acc.id ? { ...a, isActive: !(a.isActive !== false) } : a);
+    updateAccounts(next);
+  };
+
+  const moveAccountIdx = (idx, delta) => {
+    const list = getPaymentAccounts(profile).filter(a => a.id !== 'legacy');
+    const next = reorderAccounts(list, idx, idx + delta);
+    updateAccounts(next);
+  };
+
+  const importLegacyAsAccount = () => {
+    const fresh = createEmptyAccount(profile.bankName || 'Default account');
+    fresh.bankName = profile.bankName || '';
+    fresh.accountNumber = profile.accountNumber || '';
+    fresh.ifsc = profile.ifsc || '';
+    fresh.swift = profile.swift || '';
+    fresh.upiId = profile.upiId || '';
+    fresh.isDefault = true;
+    updateAccounts([fresh]);
+    toast('Imported existing bank details as your first account', 'success');
   };
 
   const handleImageUpload = (field, e) => {
@@ -461,49 +561,171 @@ export default function SettingsView({ onSaved }) {
           );
         })()}
 
-        <h3 className="section-title mt-8">Bank Details</h3>
+        {/* ---- Payment Accounts ---- */}
         {(() => {
           const bankCC = getCountryConfig(profile.country);
           const isIndia = (profile.country || 'India') === 'India';
+          // Show real accounts only — never the synthesised legacy entry, since this
+          // panel is for editing the persistent array.
+          const accounts = (profile.paymentAccounts || []).filter(a => a && a.id !== 'legacy');
+          const hasLegacyFlat = !accounts.length && (profile.bankName || profile.accountNumber || profile.ifsc || profile.swift || profile.upiId);
           return (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group">
-                <label className="form-label">Bank Name</label>
-                <input type="text" name="bankName" className="form-input" value={profile.bankName} onChange={handleChange} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Account Number {!isIndia && '/ IBAN'}</label>
-                <input type="text" name="accountNumber" className="form-input" value={profile.accountNumber} onChange={handleChange} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">{bankCC.bankLabel || 'IFSC Code'}</label>
-                <input type="text" name="ifsc" className="form-input" value={profile.ifsc} onChange={handleChange} placeholder={bankCC.bankLabel} />
-              </div>
-              {isIndia ? (
-                <div className="form-group">
-                  <label className="form-label">PAN Number</label>
-                  <input type="text" name="pan" className="form-input" value={profile.pan} onChange={handleChange} />
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.5rem', marginTop: '2rem' }}>
+                <div>
+                  <h3 className="section-title" style={{ margin: 0 }}>Payment Accounts</h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.15rem 0 0' }}>
+                    Multiple bank / UPI accounts per profile. Pick one per invoice in the Customize panel.
+                    The ⭐ default account is preselected on new invoices.
+                  </p>
                 </div>
-              ) : (
-                <div className="form-group">
-                  <label className="form-label">SWIFT / BIC (for international wires)</label>
-                  <input type="text" name="swift" className="form-input" value={profile.swift || ''} onChange={handleChange} placeholder="e.g. CHASUS33" />
+                <button type="button" className="btn btn-primary" onClick={openAddAccount}>
+                  <Plus size={16} /> Add account
+                </button>
+              </div>
+
+              {/* Migration banner — one-time prompt to lift the legacy flat fields into the new array. */}
+              {hasLegacyFlat && (
+                <div className="notice notice-warn" style={{ marginTop: '0.85rem' }}>
+                  <span className="notice-icon">📋</span>
+                  <div style={{ flex: 1 }}>
+                    <strong>Your existing bank details are still on this profile.</strong> Click below to import them as the first Payment Account, then add more.
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <button type="button" className="btn btn-secondary" onClick={importLegacyAsAccount} style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }}>
+                        Import &amp; continue →
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
+
+              {/* Empty state — no accounts AND no legacy fields */}
+              {accounts.length === 0 && !hasLegacyFlat && (
+                <div className="surface-card" style={{ marginTop: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
+                    No payment accounts yet. Add the first one — it's auto-marked ⭐ Primary.
+                  </p>
+                </div>
+              )}
+
+              {/* Account list */}
+              {accounts.length > 0 && (
+                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {accounts.map((a, idx) => (
+                    <div key={a.id} className="surface-card" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', opacity: a.isActive === false ? 0.55 : 1 }}>
+                      <div style={{ flex: 1, minWidth: '220px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {a.isDefault && <span title="Default account" style={{ fontSize: '0.95rem' }}>⭐</span>}
+                          <strong style={{ fontSize: '0.92rem' }}>{a.label || a.bankName || 'Untitled account'}</strong>
+                          {a.isActive === false && <span className="status-pill" style={{ '--pill-color': 'var(--text-muted)' }}>Inactive</span>}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem', lineHeight: 1.55 }}>
+                          {a.bankName && <span>{a.bankName} · </span>}
+                          {a.accountNumber && <span>A/C {maskAccountNumber(a.accountNumber)} · </span>}
+                          {a.ifsc && <span>{bankCC.bankLabel || 'IFSC'} {a.ifsc}</span>}
+                          {a.swift && <span> · SWIFT {a.swift}</span>}
+                          {a.upiId && <span> · 📱 {a.upiId}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                        {!a.isDefault && (
+                          <button type="button" className="icon-btn" onClick={() => markDefault(a)} title="Set as default">⭐</button>
+                        )}
+                        <button type="button" className="icon-btn" onClick={() => moveAccountIdx(idx, -1)} disabled={idx === 0} title="Move up">↑</button>
+                        <button type="button" className="icon-btn" onClick={() => moveAccountIdx(idx, 1)} disabled={idx === accounts.length - 1} title="Move down">↓</button>
+                        <button type="button" className="icon-btn" onClick={() => toggleAccountActive(a)} title={a.isActive === false ? 'Activate' : 'Deactivate'}>
+                          {a.isActive === false ? '✓' : '∅'}
+                        </button>
+                        <button type="button" className="icon-btn icon-btn-blue" onClick={() => openEditAccount(a)} title="Edit"><Edit3 size={15} /></button>
+                        <button type="button" className="icon-btn icon-btn-red" onClick={() => removeAccount(a)} title="Delete"><Trash2 size={15} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* PAN sits OUTSIDE the accounts list because it's profile-level, not per-account */}
+              {isIndia && (
+                <div className="form-group" style={{ marginTop: '1rem', maxWidth: '300px' }}>
+                  <label className="form-label">PAN Number (business-level)</label>
+                  <input type="text" name="pan" className="form-input" value={profile.pan || ''} onChange={handleChange} placeholder="e.g. AAAAA1234A" maxLength={10} />
+                </div>
+              )}
+
+              {/* Add/Edit modal */}
+              {editingAccount && (
+                <div className="modal-overlay" onClick={cancelAccount}>
+                  <div className="modal-content" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
+                    <h3 className="section-title" style={{ marginTop: 0 }}>{getPaymentAccounts(profile).some(a => a.id === editingAccount.id) ? 'Edit account' : 'Add account'}</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                        <label className="form-label">Label (shown in the dropdown)</label>
+                        <input type="text" className="form-input" value={editingAccount.label}
+                          onChange={e => setEditingAccount(a => ({ ...a, label: e.target.value }))}
+                          placeholder="e.g. HDFC Current — 1234" />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Bank Name</label>
+                        <input type="text" className="form-input" value={editingAccount.bankName}
+                          onChange={e => setEditingAccount(a => ({ ...a, bankName: e.target.value }))} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Account Number {!isIndia && '/ IBAN'}</label>
+                        <input type="text" className="form-input" value={editingAccount.accountNumber}
+                          onChange={e => setEditingAccount(a => ({ ...a, accountNumber: e.target.value }))} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">{bankCC.bankLabel || 'IFSC Code'}</label>
+                        <input type="text" className="form-input" value={editingAccount.ifsc}
+                          onChange={e => setEditingAccount(a => ({ ...a, ifsc: e.target.value }))}
+                          placeholder={bankCC.bankLabel} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">SWIFT / BIC (optional)</label>
+                        <input type="text" className="form-input" value={editingAccount.swift}
+                          onChange={e => setEditingAccount(a => ({ ...a, swift: e.target.value }))}
+                          placeholder="e.g. HDFCINBB" />
+                      </div>
+                      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                        <label className="form-label">UPI ID (optional — drives the QR for this account)</label>
+                        <input type="text" className="form-input"
+                          style={accountUpiWarning ? { borderColor: '#f59e0b' } : undefined}
+                          value={editingAccount.upiId}
+                          onChange={e => { setEditingAccount(a => ({ ...a, upiId: e.target.value })); if (accountUpiWarning) setAccountUpiWarning(''); }}
+                          onBlur={() => {
+                            const v = (editingAccount.upiId || '').trim();
+                            setAccountUpiWarning(v && !isValidUpiId(v) ? "Doesn't look like a UPI ID. Expected like merchant@hdfcbank or 9876543210@paytm." : '');
+                          }}
+                          placeholder="e.g. yourbusiness@hdfcbank" />
+                        {accountUpiWarning && <small style={{ color: '#d97706', fontSize: '0.7rem', display: 'block', marginTop: '0.2rem' }}>⚠ {accountUpiWarning}</small>}
+                      </div>
+                      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                        <label className="form-label">Internal notes (not printed on the PDF)</label>
+                        <textarea rows="2" className="form-input" value={editingAccount.notes}
+                          onChange={e => setEditingAccount(a => ({ ...a, notes: e.target.value }))}
+                          placeholder="e.g. Use for export clients only" />
+                      </div>
+                      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!editingAccount.isDefault}
+                            onChange={e => setEditingAccount(a => ({ ...a, isDefault: e.target.checked }))}
+                            style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                          <span><strong>⭐ Set as default account</strong> — preselected on every new invoice</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end mt-4">
+                      <button type="button" className="btn btn-secondary" onClick={cancelAccount}>Cancel</button>
+                      <button type="button" className="btn btn-primary" onClick={saveAccountForm}>
+                        <Save size={16} /> Save account
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           );
         })()}
-
-        {/* UPI */}
-        <h3 className="section-title mt-8">UPI Payment</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-group full-width">
-            <label className="form-label">UPI ID</label>
-            <input type="text" name="upiId" className="form-input" value={profile.upiId} onChange={handleChange}
-              placeholder="e.g. yourbusiness@upi or 9876543210@paytm" />
-            <p className="field-hint">If set, a QR code will appear on invoices for instant UPI payment.</p>
-          </div>
-        </div>
 
         {/* Invoice Number Format */}
         <h3 className="section-title mt-8"><Hash size={18} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />Invoice Number Format</h3>

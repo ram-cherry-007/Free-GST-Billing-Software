@@ -3,7 +3,7 @@ import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronU
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode } from '../store';
-import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS } from '../utils';
+import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById } from '../utils';
 import { ensureToken, findOrCreateFolder, uploadPDF } from '../services/googleDrive';
 import DOMPurify from 'dompurify';
 import InvoicePreview from './InvoicePreview';
@@ -106,6 +106,8 @@ const DEFAULT_OPTIONS = {
   customTitle: '',
   currency: 'INR',
   exchangeRate: '',
+  selectedAccountId: null,   // null ⇒ resolve via last-used / default / first-active at render time
+  showAccountLabel: false,   // when true, prints "Pay via: <account label>" above the bank block
   accentColor: '',
   pdfStyle: 'classic',
 };
@@ -376,6 +378,35 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       });
     }
   }, [editingBill]);
+
+  // Seed the payment-account selection on first render. For a freshly-created
+  // invoice (no editingBill, no value yet) we look up the last-used account for
+  // this profile in localStorage, falling back to the profile's ⭐ default,
+  // then the first active account. Resolving here once means the dropdown shows
+  // the right value immediately rather than flickering through nulls.
+  useEffect(() => {
+    if (editingBill) return; // editing — keep whatever the bill stored
+    if (invoiceOptions.selectedAccountId) return; // already set
+    if (!profile) return;
+    const lastUsedKey = `gst_lastUsedAccountId_${profile.id || profile.businessName || 'default'}`;
+    let candidate = null;
+    try { candidate = localStorage.getItem(lastUsedKey); } catch { /* sandboxed */ }
+    const active = getActiveAccounts(profile);
+    const resolves = candidate && active.some(a => a.id === candidate);
+    const next = resolves ? candidate : (getDefaultAccount(profile)?.id || active[0]?.id || null);
+    if (next) setInvoiceOptions(prev => ({ ...prev, selectedAccountId: next }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id, profile?.businessName, editingBill]);
+
+  // Persist the just-used account to localStorage so the NEXT new invoice on
+  // this profile defaults to the same one. Saved on every change rather than
+  // only on Save so power users typing through 5 invoices in a row get sticky
+  // behaviour even if they navigate without saving each one.
+  useEffect(() => {
+    if (!profile || !invoiceOptions.selectedAccountId) return;
+    const lastUsedKey = `gst_lastUsedAccountId_${profile.id || profile.businessName || 'default'}`;
+    try { localStorage.setItem(lastUsedKey, invoiceOptions.selectedAccountId); } catch { /* ignore */ }
+  }, [profile?.id, profile?.businessName, invoiceOptions.selectedAccountId]);
 
   // When loading a saved bill, prefer the LIVE business profile that matches the bill's
   // snapshot (by id, falling back to businessName). Means a Settings rename / address
@@ -994,6 +1025,33 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     )}
                   </div>
                 )}
+                {/* Payment account picker — lists the active business profile's active
+                    accounts. Hidden when the profile has 0 accounts (preserves v1.4.3
+                    "no bank block" behaviour). Stored as invoiceOptions.selectedAccountId
+                    so re-opening the invoice produces the same PDF. */}
+                {(() => {
+                  const accounts = getActiveAccounts(profile);
+                  if (accounts.length === 0) return null;
+                  const resolved = getAccountById(profile, invoiceOptions.selectedAccountId);
+                  return (
+                    <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                      <label className="form-label">Payment account on this invoice</label>
+                      <select className="form-input" value={resolved?.id || ''}
+                        onChange={(e) => setInvoiceOptions(prev => ({ ...prev, selectedAccountId: e.target.value || null }))}>
+                        {accounts.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.isDefault ? '⭐ ' : ''}{a.label || a.bankName || 'Untitled account'}
+                            {a.bankName && a.label !== a.bankName ? ` — ${a.bankName}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <small style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+                        Bank details and UPI QR on the PDF come from the selected account.
+                        Manage accounts in Settings → Payment Accounts.
+                      </small>
+                    </div>
+                  );
+                })()}
                 <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                   <label className="form-label">PDF Style</label>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1060,6 +1118,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   ]},
                   { group: 'Footer', items: [
                     ['showBankDetails', 'Bank details'],
+                    ['showAccountLabel', 'Show "Pay via: <account>" label above bank block'],
                     ['showUPI', 'UPI QR (India only)'],
                     ['showSignature', 'Signature block'],
                     ['showSignatoryText', 'Show "Authorized Signatory" caption'],
@@ -1071,8 +1130,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.3rem' }}>{section.group}</div>
                     <div className="options-grid">
                       {section.items.map(([key, label]) => {
-                        // showRoundOff defaults to false; everything else defaults to true.
-                        const checked = key === 'showRoundOff' ? !!invoiceOptions[key] : invoiceOptions[key] !== false;
+                        // These two default to OFF; everything else defaults to ON.
+                        const offByDefault = key === 'showRoundOff' || key === 'showAccountLabel';
+                        const checked = offByDefault ? !!invoiceOptions[key] : invoiceOptions[key] !== false;
                         return (
                           <label key={key} className="option-toggle">
                             <input type="checkbox" checked={checked} onChange={() => toggleOption(key)} />
@@ -1086,7 +1146,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
                   <button type="button" className="btn btn-secondary"
                     onClick={() => {
-                      const allKeys = ['showLogo','showBusinessName','showBusinessAddress','showBusinessPhone','showBusinessEmail','showState','showGSTIN','showClientAddress','showClientPhone','showClientEmail','showPlaceOfSupply','showInvoiceNumber','showInvoiceDate','showDueDate','showHSN','showItemQty','showItemUnit','showRateColumn','showDiscount','showGST','showSubtotal','showAmountWords','showRoundOff','showBankDetails','showUPI','showSignature','showSignatoryText','showTerms','showNotes'];
+                      const allKeys = ['showLogo','showBusinessName','showBusinessAddress','showBusinessPhone','showBusinessEmail','showState','showGSTIN','showClientAddress','showClientPhone','showClientEmail','showPlaceOfSupply','showInvoiceNumber','showInvoiceDate','showDueDate','showHSN','showItemQty','showItemUnit','showRateColumn','showDiscount','showGST','showSubtotal','showAmountWords','showRoundOff','showBankDetails','showAccountLabel','showUPI','showSignature','showSignatoryText','showTerms','showNotes'];
                       setInvoiceOptions(prev => { const out = { ...prev }; allKeys.forEach(k => { out[k] = false; }); return out; });
                     }}
                     style={{ fontSize: '0.72rem', padding: '0.3rem 0.6rem' }}>

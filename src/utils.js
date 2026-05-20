@@ -423,6 +423,102 @@ export const formatExchangeRateLine = (currency, rate, baseCurrency = 'INR') => 
   return `1 ${currency} = ${Number(rate).toFixed(4)} ${baseCurrency}`;
 };
 
+// ========== Payment accounts ==========
+// Profiles store an array `paymentAccounts: [{ id, label, bankName,
+// accountNumber, ifsc, swift, upiId, isDefault, notes }]`. The legacy flat
+// fields (profile.bankName / accountNumber / ifsc / swift / upiId) are kept
+// in place for backwards compatibility — `getPaymentAccounts(profile)`
+// transparently synthesises a single entry from them when no array exists,
+// so old invoices and old profiles keep working without a data migration.
+
+const newAccountId = () => `acc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+export const getPaymentAccounts = (profile) => {
+  if (!profile) return [];
+  if (Array.isArray(profile.paymentAccounts) && profile.paymentAccounts.length > 0) {
+    return profile.paymentAccounts;
+  }
+  // Synthesise a single legacy entry if any flat bank/UPI field is set.
+  const hasLegacy = profile.bankName || profile.accountNumber || profile.ifsc || profile.swift || profile.upiId;
+  if (!hasLegacy) return [];
+  return [{
+    id: 'legacy',
+    label: profile.bankName ? `${profile.bankName}` : 'Default account',
+    bankName: profile.bankName || '',
+    accountNumber: profile.accountNumber || '',
+    ifsc: profile.ifsc || '',
+    swift: profile.swift || '',
+    upiId: profile.upiId || '',
+    isDefault: true,
+    notes: '',
+  }];
+};
+
+export const getDefaultAccount = (profile) => {
+  const accounts = getPaymentAccounts(profile);
+  return accounts.find(a => a.isDefault) || accounts[0] || null;
+};
+
+export const getAccountById = (profile, id) => {
+  if (!id) return getDefaultAccount(profile);
+  const accounts = getPaymentAccounts(profile);
+  return accounts.find(a => a.id === id) || getDefaultAccount(profile);
+};
+
+// Create a fresh empty account ready for the user to fill in.
+export const createEmptyAccount = (label = 'New account') => ({
+  id: newAccountId(),
+  label,
+  bankName: '',
+  accountNumber: '',
+  ifsc: '',
+  swift: '',
+  upiId: '',
+  isDefault: false,
+  isActive: true,
+  notes: '',
+});
+
+// Active accounts only — used to populate the new-invoice dropdown so
+// archived/disabled accounts don't appear, but they remain editable in
+// Settings and still resolve for historical invoices that referenced them.
+export const getActiveAccounts = (profile) =>
+  getPaymentAccounts(profile).filter(a => a.isActive !== false);
+
+// Account number is sensitive — mask all but the last 4 digits for list rows.
+// Preserves the visual cue of length without leaking the full number.
+export const maskAccountNumber = (n) => {
+  const s = String(n || '').trim();
+  if (s.length <= 4) return s; // too short to mask
+  return '••••' + s.slice(-4);
+};
+
+// Returns a NEW accounts array with the entry at fromIdx moved to toIdx.
+// Pure — caller writes the result back to profile.paymentAccounts.
+export const reorderAccounts = (accounts, fromIdx, toIdx) => {
+  if (!Array.isArray(accounts)) return accounts;
+  if (fromIdx === toIdx || fromIdx < 0 || fromIdx >= accounts.length) return accounts;
+  if (toIdx < 0 || toIdx >= accounts.length) return accounts;
+  const next = accounts.slice();
+  const [moved] = next.splice(fromIdx, 1);
+  next.splice(toIdx, 0, moved);
+  return next;
+};
+
+// Returns a NEW accounts array with exactly one default — the one matching
+// `accountId`. Used by the Settings UI's ⭐ buttons. If no match, returns
+// the input unchanged.
+export const setDefaultAccount = (accounts, accountId) => {
+  if (!Array.isArray(accounts) || !accountId) return accounts;
+  if (!accounts.some(a => a.id === accountId)) return accounts;
+  return accounts.map(a => ({ ...a, isDefault: a.id === accountId }));
+};
+
+// Soft UPI VPA format check (warning-only). Allows alphanumerics, dot, hyphen,
+// underscore on either side of the @ — covers Indian VPAs like
+// "9999999999@upi", "acme.corp@hdfcbank", "merchant-1@paytm".
+export const isValidUpiId = (s) => /^[\w.\-]+@[\w.\-]+$/.test(String(s || '').trim());
+
 // ========== Feature modules ==========
 // Each module can be turned off by the user in Settings → Modules. Modules in
 // the 'core' group are always on (creating invoices, managing clients, settings)

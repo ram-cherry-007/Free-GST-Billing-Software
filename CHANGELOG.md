@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.0] — 2026-04-30
+
+Multi-account payment support. A profile can now hold many bank / UPI
+accounts; you pick one per invoice from the Customize panel; the bank
+block AND UPI QR on the PDF flow from the selected account together.
+
+Designed and reviewed under the brainstorming skill before any code
+changes — full spec at
+[docs/superpowers/specs/2026-04-30-multi-account-payments-design.md](./docs/superpowers/specs/2026-04-30-multi-account-payments-design.md).
+
+### Added — Payment Accounts
+
+- **New "Payment Accounts" card** in Settings (between Region Preference
+  and Modules). Each profile carries an ordered `paymentAccounts` array;
+  per-row buttons: ⭐ Set default · ↑ ↓ Move · Edit · Activate/Deactivate
+  · Delete.
+- **Account fields**: label (free text, shown in dropdown and optionally
+  on PDF), bank name, account number, IFSC (country-aware label →
+  IBAN / Sort Code / Routing / BSB), SWIFT, UPI ID, internal notes, plus
+  `isDefault` and `isActive` flags.
+- **Account number masked** in the list (`••••6789`) — full number only
+  inside the edit form and on the PDF.
+- **Inactive accounts** hidden from new-invoice dropdowns but kept
+  editable; historical invoices that used them still resolve correctly.
+- **⭐ Default constraint** enforced on save — exactly one per profile.
+- **UPI VPA soft validation** — warning if format doesn't match
+  `<handle>@<provider>` pattern; never blocks save.
+
+### Added — Invoice form integration
+
+- **"Payment account on this invoice"** dropdown in Customize panel,
+  positioned with the other invoice-level pickers (currency, PDF style).
+  Lists only active accounts of the active business profile.
+- **`selectedAccountId`** stored on `invoiceOptions` so reopening the
+  invoice produces the same PDF.
+- **Default seeding** — new invoices default to: (1) last-used account
+  for this profile from `localStorage.gst_lastUsedAccountId_<profile>`,
+  (2) failing that the ⭐ default, (3) failing that the first active
+  account, (4) failing that null.
+- **"Show *Pay via: <account>* label"** toggle in Customize → Footer;
+  prints the account label above the bank-details block on the PDF for
+  invoices where the account choice matters to the client.
+
+### Changed — PDF rendering
+
+- Bank details block now reads from the resolved account via
+  `getAccountById(profile, options.selectedAccountId)`. Falls back to
+  flat profile fields when neither array entry nor flat field exists
+  — guarantees byte-identical PDFs for v1.4.x invoices.
+- UPI QR `useEffect` now keyed on `account.upiId` instead of
+  `profile.upiId`. Switching account swaps the QR. If the selected
+  account has no UPI ID → no QR, same as today's empty-UPI case.
+
+### Changed — Welcome wizard
+
+- On *Finish*, the wizard's flat bank/UPI inputs are also mirrored into
+  `profile.paymentAccounts: [{...thatAccount, isDefault: true,
+  isActive: true}]`. New users have one account auto-marked Primary
+  with zero extra wizard steps.
+
+### Backward compatibility
+
+- **`getPaymentAccounts(profile)`** transparently synthesises a single
+  "Default account" from legacy flat fields (`bankName`, `accountNumber`,
+  `ifsc`, `swift`, `upiId`) when the array is missing or empty. Old
+  invoices, old profiles, old backups all render identically.
+- **Migration banner** in Settings → Payment Accounts (one-time, shown
+  only when `paymentAccounts` is empty AND legacy fields are set):
+  *"Imported your existing bank details as the first account. Edit it
+  or add more below."* One click *Import & continue* writes the
+  synthesised account into the array.
+- **Forward syncing** — when the default account changes (via Edit,
+  ⭐ button, or Delete), the profile's flat fields are kept in sync with
+  the default account so any v1.4.x reader of the same `profile.json`
+  still sees consistent data. Graceful one-way downgrade.
+- **Backup pipeline** unchanged — `paymentAccounts` is just a property
+  of the profile object, which already rides along under the existing
+  "Active business profile" / "All business profiles" checkboxes.
+
+### Utility helpers
+
+`src/utils.js` gains:
+- `getPaymentAccounts(profile)` — array or synthesised legacy fallback
+- `getDefaultAccount(profile)`, `getAccountById(profile, id)`
+- `getActiveAccounts(profile)` — filter to `isActive`
+- `createEmptyAccount(label)`
+- `maskAccountNumber(s)`
+- `reorderAccounts(list, fromIdx, toIdx)`
+- `setDefaultAccount(list, accountId)`
+- `isValidUpiId(s)`
+
+---
+
 ## [1.4.3] — 2026-04-30
 
 In-app update notifications. Existing users now find out about new releases

@@ -153,7 +153,26 @@ export const GUIDE_CONTENT = [
   { type: 'p', text: 'In the invoice form, click "Generate E-Way Bill JSON" (visible for Tax Invoice and Delivery Challan types). The JSON matches the NIC portal schema (version 1.0.1221). Upload it at ewaybillgst.gov.in → Bulk Generation. Required fields: business state + PIN code, client state + PIN code (we extract from address if possible). For non-Indian profiles the export shows a friendly error instead of producing junk.' },
   { type: 'spacer' },
 
-  { type: 'h2', text: '12. Backing up your data' },
+  { type: 'h2', text: '12. Payment Accounts (multiple banks / UPI per profile)' },
+  { type: 'p', text: 'Each business profile can hold many payment accounts — e.g. an HDFC current account for INR, an ICICI EEFC for USD exports, and a personal UPI. Pick which one shows on a given invoice from the Customize panel.' },
+  { type: 'h3', text: 'Managing accounts' },
+  { type: 'p', text: 'Settings → Payment Accounts. Click + Add account to create one. Each account has a free-text label (shown in the dropdown), bank name, account number, IFSC / IBAN / Sort Code (label auto-adapts to your country), optional SWIFT for international wires, optional UPI ID for the QR, and optional internal notes (not printed).' },
+  { type: 'ul', items: [
+    '⭐ Mark one account as default — it is preselected on every new invoice.',
+    '↑ ↓ Reorder accounts — affects dropdown order in the invoice form.',
+    '∅ Deactivate an account — keeps it editable but hides it from new-invoice dropdowns. Historical invoices that used it stay unchanged.',
+    'Delete — permanently removes the account. Existing invoice PDFs that referenced it still render correctly via their saved snapshot.',
+  ]},
+  { type: 'h3', text: 'Picking an account on an invoice' },
+  { type: 'p', text: 'In the invoice form, open Customize. The "Payment account on this invoice" dropdown lists all active accounts of the current business profile. Switching swaps both the bank-details block AND the UPI QR code on the PDF together — each account is a complete payment endpoint.' },
+  { type: 'p', text: 'Tick "Show Pay via: <account> label" in the Footer toggle group to print the account label above the bank block — useful when you have multiple accounts and want the client to know which one to use.' },
+  { type: 'h3', text: 'Defaults' },
+  { type: 'p', text: 'New invoices default to: (1) the account you used on your last invoice for this profile (per-device memory), (2) failing that, the ⭐ default, (3) failing that, the first active account.' },
+  { type: 'h3', text: 'Upgrading from a single account' },
+  { type: 'p', text: 'If you used the app before v1.5, you have one bank/UPI set on your profile. Open Settings → Payment Accounts → click "Import & continue" — your existing details become your first account, marked as default. Add more from there.' },
+  { type: 'spacer' },
+
+  { type: 'h2', text: '13. Backing up your data' },
   { type: 'p', text: 'Everything is stored in two places next to the app folder:' },
   { type: 'ul', items: [
     'data/ — bills.json, clients.json, products.json, profiles.json, expenses.json, purchases.json, receipts.json, recurring.json, templates.json, meta.json',
@@ -166,7 +185,7 @@ export const GUIDE_CONTENT = [
   { type: 'p', text: 'Just copy the entire app folder somewhere safe. The data/ and Saved Invoices/ folders are the only thing that matters — node_modules/ and dist/ can always be regenerated.' },
   { type: 'spacer' },
 
-  { type: 'h2', text: '13. Moving to a new computer' },
+  { type: 'h2', text: '14. Moving to a new computer' },
   { type: 'p', text: 'Three options. Pick whichever fits.' },
   { type: 'h3', text: 'Option A — One-file export / import' },
   { type: 'ol', items: [
@@ -186,7 +205,7 @@ export const GUIDE_CONTENT = [
   { type: 'p', text: 'Put the entire Free-GST-Billing-Software folder inside a synced folder. Both machines now see the same data/ files. Do NOT run the app on both machines at the same time — that can corrupt files.' },
   { type: 'spacer' },
 
-  { type: 'h2', text: '14. Common questions (FAQ)' },
+  { type: 'h2', text: '15. Common questions (FAQ)' },
   { type: 'kv', rows: [
     ['Where exactly is my data?', 'In the data/ folder next to where you installed the app. Plain JSON files — open them in Notepad if you ever want to inspect them.'],
     ['Is anything sent to the internet?', 'Only if you turn on Google Drive backup, or click Update to fetch a new version. Otherwise nothing leaves your computer.'],
@@ -200,7 +219,7 @@ export const GUIDE_CONTENT = [
   ]},
   { type: 'spacer' },
 
-  { type: 'h2', text: '15. Troubleshooting' },
+  { type: 'h2', text: '16. Troubleshooting' },
   { type: 'kv', rows: [
     ['"Cannot connect to server" / blank page', 'The local server is not running. Run "Start FreeGSTBill.bat" again, or reboot (it auto-starts on login).'],
     ['Windows shows "Windows protected your PC" or my antivirus blocked the installer', 'Click "More info" → "Run anyway". Or right-click the .bat → Properties → Unblock. The full source is on GitHub if you want to inspect it.'],
@@ -210,14 +229,14 @@ export const GUIDE_CONTENT = [
   ]},
   { type: 'spacer' },
 
-  { type: 'h2', text: '16. For developers' },
+  { type: 'h2', text: '17. For developers' },
   { type: 'p', text: 'Stack: React 19 + Vite 7 frontend, Express 5 backend, plain JavaScript (no TypeScript). Persistence is JSON files in data/.' },
   { type: 'p', text: 'Setup:  git clone the repo,  cd in,  npm install,  npm run dev (starts both Express + Vite dev server).' },
   { type: 'p', text: 'Key files:  src/components/InvoiceGenerator.jsx (invoice form),  src/components/InvoicePreview.jsx (PDF template),  src/utils.js (countries, units, validation, GST exports),  server.js (REST API),  src/store.js (frontend store wrapper).' },
   { type: 'p', text: 'PRs welcome. The project follows Keep a Changelog — see CHANGELOG.md.' },
   { type: 'spacer' },
 
-  { type: 'h2', text: '17. Need help?' },
+  { type: 'h2', text: '18. Need help?' },
   { type: 'ul', items: [
     'GitHub issues: github.com/IamRamgarhia/Free-GST-Billing-Software/issues',
     'Email DiceCodes: contact@dicecodes.com',

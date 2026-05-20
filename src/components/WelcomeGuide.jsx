@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Building2, FileText, BarChart3, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, Image, PenTool } from 'lucide-react';
 import { saveProfile, setRegionMode } from '../store';
-import { getStatesForCountry, getCountryConfig, detectCountryFromBrowser } from '../utils';
+import { getStatesForCountry, getCountryConfig, detectCountryFromBrowser, createEmptyAccount } from '../utils';
 import { toast } from './Toast';
 
 const STEPS = [
@@ -50,10 +50,28 @@ export default function WelcomeGuide({ onComplete }) {
     setSaving(true);
     try {
       setRegionMode(region);
-      await saveProfile(profile);
+      // Mirror the wizard's flat bank/UPI inputs into a single payment account
+      // so the multi-account manager has a starting entry. If the user
+      // skipped all bank fields, we don't create an empty account — they can
+      // add one later in Settings.
+      const hasBank = profile.bankName || profile.accountNumber || profile.ifsc || profile.swift || profile.upiId;
+      const profileToSave = hasBank ? {
+        ...profile,
+        paymentAccounts: [{
+          ...createEmptyAccount(profile.bankName || 'Default account'),
+          bankName: profile.bankName || '',
+          accountNumber: profile.accountNumber || '',
+          ifsc: profile.ifsc || '',
+          swift: profile.swift || '',
+          upiId: profile.upiId || '',
+          isDefault: true,
+          isActive: true,
+        }],
+      } : profile;
+      await saveProfile(profileToSave);
       localStorage.setItem('freegstbill_onboarded', 'true');
       toast('Setup complete! Start creating invoices.', 'success');
-      onComplete(profile);
+      onComplete(profileToSave);
     } catch {
       toast('Failed to save. Try again.', 'error');
     }
