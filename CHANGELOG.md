@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.3] — 2026-04-30
+
+Hotfix. Production build threw `Uncaught ReferenceError: Cannot access 'Nt'
+before initialization` on app load — white screen. Caused by a Temporal
+Dead Zone violation introduced in v1.5.1.
+
+### Fixed — TDZ on app load
+
+In v1.5.1 the command-palette `paletteActions = useMemo(...)` and its two
+dependent `useEffect` calls were placed near the top of `App.jsx`, but
+their dependency arrays reference `navItems` and `handleNewInvoice` —
+both `const` declared 200 lines lower in the same function body. The
+useMemo dep array is evaluated synchronously on every render, so reading
+those consts before their declaration threw at the first render — minified
+as `Cannot access 'Nt' before initialization` in the production bundle,
+manifesting as a white screen for users on v1.5.1 / v1.5.2.
+
+The fix moves the useMemo and the two related useEffects down past
+`navItems`. The state hooks (`showPalette`, `paletteQuery`, etc.) stay
+where they were since they don't read those consts. Behaviour is
+unchanged; only the declaration order moved.
+
+Dev builds never hit this because the file was always running with the
+declaration order already legal at HMR-patch time; only a full reload of
+the bundled production JS surfaced the TDZ. Lesson: production bundles
+are stricter about declaration order than dev bundles.
+
+---
+
 ## [1.5.2] — 2026-04-30
 
 Port choice + listener safety. The server has moved off the heavily-contested

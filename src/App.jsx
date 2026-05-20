@@ -117,74 +117,10 @@ function App() {
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
-  // Command palette actions — assembled fresh each open so it reflects current
-  // module-enabled / current-view context. Filters by case-insensitive substring.
-  const paletteActions = useMemo(() => {
-    const acts = [
-      { label: 'New Invoice', hint: 'Ctrl+N', run: () => { handleNewInvoice(); } },
-    ];
-    navItems.forEach(item => {
-      if (item.id === 'new') return; // already covered
-      acts.push({ label: `Go to ${item.label}`, hint: '', run: item.onClick || (() => setCurrentView(item.id)) });
-    });
-    acts.push({ label: 'Go to Settings', hint: '', run: () => setCurrentView('settings') });
-    acts.push({ label: 'Toggle dark mode', hint: '', run: () => setDarkMode(d => !d) });
-    acts.push({ label: 'Show keyboard shortcuts', hint: 'Ctrl+/', run: () => setShowShortcutsHelp(true) });
-    if (updateInfo?.updateAvailable) {
-      acts.push({ label: `View update — v${updateInfo.latest}`, hint: '', run: () => setShowUpdateModal(true) });
-    }
-    return acts;
-  }, [navItems, updateInfo, handleNewInvoice]);
-
-  const filteredPalette = paletteActions.filter(a =>
-    !paletteQuery.trim() || a.label.toLowerCase().includes(paletteQuery.toLowerCase())
-  );
-
-  useEffect(() => {
-    const onKey = (e) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      // Don't hijack shortcuts when the user is typing in an editable element —
-      // except for our own palette / help triggers, which should work everywhere.
-      const tag = (e.target?.tagName || '').toLowerCase();
-      const editable = tag === 'input' || tag === 'textarea' || e.target?.isContentEditable;
-
-      if (e.key === 'k' || e.key === 'K') {
-        e.preventDefault();
-        setShowPalette(p => !p);
-        setPaletteQuery('');
-        setPaletteIdx(0);
-      } else if (e.key === '/') {
-        e.preventDefault();
-        setShowShortcutsHelp(s => !s);
-      } else if ((e.key === 'n' || e.key === 'N') && !editable) {
-        e.preventDefault();
-        handleNewInvoice();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // When the palette is open, arrow-navigate the filtered list with up/down,
-  // Enter to run, Esc to close. Scoped to the palette so we don't accidentally
-  // interfere with form arrow-key behaviour elsewhere.
-  useEffect(() => {
-    if (!showPalette) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); setShowPalette(false); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setPaletteIdx(i => Math.min(i + 1, filteredPalette.length - 1)); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setPaletteIdx(i => Math.max(i - 1, 0)); }
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        const action = filteredPalette[paletteIdx];
-        if (action) { action.run(); setShowPalette(false); }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showPalette, paletteIdx, filteredPalette]);
+  // Palette useMemo + dependent effects are declared further down, AFTER
+  // `navItems` and `handleNewInvoice` exist. Declaring them up here would
+  // throw "Cannot access 'X' before initialization" at render time because
+  // useMemo's dependency array is evaluated synchronously every render.
 
   const dismissUpdate = () => {
     if (updateInfo?.latest) {
@@ -366,6 +302,75 @@ function App() {
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns' },
     { id: 'guide', icon: HelpCircle, label: 'User Guide', module: 'dashboard' }, // gated by dashboard so it's always available
   ].filter(item => showIfModule(item.module));
+
+  // Command palette actions — declared here (not earlier) because the deps
+  // array references `navItems` and `handleNewInvoice`, which are consts.
+  // Reading a const before its declaration triggers a Temporal Dead Zone
+  // ReferenceError ("Cannot access 'X' before initialization") at runtime.
+  const paletteActions = useMemo(() => {
+    const acts = [
+      { label: 'New Invoice', hint: 'Ctrl+N', run: () => { handleNewInvoice(); } },
+    ];
+    navItems.forEach(item => {
+      if (item.id === 'new') return; // already covered above
+      acts.push({ label: `Go to ${item.label}`, hint: '', run: item.onClick || (() => setCurrentView(item.id)) });
+    });
+    acts.push({ label: 'Go to Settings', hint: '', run: () => setCurrentView('settings') });
+    acts.push({ label: 'Toggle dark mode', hint: '', run: () => setDarkMode(d => !d) });
+    acts.push({ label: 'Show keyboard shortcuts', hint: 'Ctrl+/', run: () => setShowShortcutsHelp(true) });
+    if (updateInfo?.updateAvailable) {
+      acts.push({ label: `View update — v${updateInfo.latest}`, hint: '', run: () => setShowUpdateModal(true) });
+    }
+    return acts;
+  }, [navItems, updateInfo, handleNewInvoice]);
+
+  const filteredPalette = paletteActions.filter(a =>
+    !paletteQuery.trim() || a.label.toLowerCase().includes(paletteQuery.toLowerCase())
+  );
+
+  // Global keyboard shortcuts. Lives down here for the same TDZ reason —
+  // the handler closes over `handleNewInvoice` which is declared above only.
+  useEffect(() => {
+    const onKey = (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const editable = tag === 'input' || tag === 'textarea' || e.target?.isContentEditable;
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        setShowPalette(p => !p);
+        setPaletteQuery('');
+        setPaletteIdx(0);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        setShowShortcutsHelp(s => !s);
+      } else if ((e.key === 'n' || e.key === 'N') && !editable) {
+        e.preventDefault();
+        handleNewInvoice();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Palette-only arrow / Enter / Esc nav. Filtered list dep keeps the
+  // handler in sync with the user's current query.
+  useEffect(() => {
+    if (!showPalette) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); setShowPalette(false); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setPaletteIdx(i => Math.min(i + 1, filteredPalette.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setPaletteIdx(i => Math.max(i - 1, 0)); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const action = filteredPalette[paletteIdx];
+        if (action) { action.run(); setShowPalette(false); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showPalette, paletteIdx, filteredPalette]);
 
   if (serverDown) {
     return (
