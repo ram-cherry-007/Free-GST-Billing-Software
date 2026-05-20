@@ -97,6 +97,8 @@ const DEFAULT_OPTIONS = {
   showDueDate: true,
   showItemQty: true,
   showRoundOff: false,
+  showCess: false,         // when true, exposes per-line Cess % input (India-only)
+  reverseCharge: false,    // when true, GST is paid by the recipient (Section 9(3)/9(4))
   showTDS: false,
   tdsSection: '194Q',
   tdsRate: 0.1,
@@ -145,7 +147,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   });
 
   const [items, setItems] = useState(draft?.items || [
-    { id: Date.now().toString(), name: '', hsn: '', quantity: 1, unit: 'Nos', rate: 0, discount: 0, taxPercent: 18 }
+    { id: Date.now().toString(), name: '', hsn: '', quantity: 1, unit: 'Nos', rate: 0, discount: 0, taxPercent: 18, cessPercent: 0 }
   ]);
   const [units, setUnits] = useState(getAllUnits());
   const [taxInclusive, setTaxInclusive] = useState(draft?.taxInclusive || false);
@@ -446,11 +448,24 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     let subtotal = 0;
     let totalDiscount = 0;
     let taxTotal = 0;
+    let cessTotal = 0; // GST Compensation Cess — separate from CGST/SGST/IGST,
+                        // applies to specific HSN ranges (tobacco, auto, coal, etc.)
 
     items.forEach(item => {
       const amount = item.quantity * item.rate;
       const discount = item.discount || 0;
       const afterDiscount = amount - discount;
+      const cessPercent = Number(item.cessPercent) || 0;
+      // Cess always applies to the post-discount taxable value, never tax-inclusive.
+      // Cess is added on top — never back-calculated like GST in MRP mode.
+      if (showGST && cessPercent > 0) {
+        // If tax-inclusive, the taxable value for cess is the back-calculated one
+        // (cess is computed off the taxable value, not the gross). Match that.
+        const taxableForCess = (taxInclusive && (item.taxPercent || 0) > 0)
+          ? afterDiscount / (1 + (item.taxPercent || 0) / 100)
+          : afterDiscount;
+        cessTotal += (taxableForCess * cessPercent) / 100;
+      }
 
       if (taxInclusive && showGST) {
         // Rate is tax-inclusive (MRP). Back-calculate taxable value.
@@ -496,7 +511,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     const tdsAmount = invoiceOptions.showTDS && Number(invoiceOptions.tdsRate) > 0
       ? round2(taxableForTDS * Number(invoiceOptions.tdsRate) / 100) : 0;
 
-    const totalBeforeRound = baseTotal + tcsAmount;
+    // Cess is added on top — same treatment as TCS but a GST-side number, not Income-Tax.
+    const cessRounded = round2(cessTotal);
+    const totalBeforeRound = baseTotal + tcsAmount + cessRounded;
     const roundOff = invoiceOptions.showRoundOff ? calculateRoundOff(totalBeforeRound) : 0;
     const finalTotal = totalBeforeRound + roundOff;
 
@@ -508,6 +525,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         totalDiscount,
         taxableAmount,
         cgst, sgst, igst,
+        cess: cessRounded,
         roundOff,
         tcsAmount,
         tdsAmount,
@@ -521,6 +539,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         totalDiscount,
         taxableAmount: subtotal - totalDiscount,
         cgst, sgst, igst,
+        cess: cessRounded,
         roundOff,
         tcsAmount,
         tdsAmount,
@@ -576,7 +595,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const addItem = () => {
     setItems(prev => [...prev, {
       id: Date.now().toString(), name: '', hsn: '', quantity: 1, unit: 'Nos', rate: 0, discount: 0,
-      taxPercent: showGST ? (countryTaxRates[countryTaxRates.length - 2] ?? 18) : 0
+      taxPercent: showGST ? (countryTaxRates[countryTaxRates.length - 2] ?? 18) : 0,
+      cessPercent: 0,
     }]);
   };
 
@@ -811,6 +831,28 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (scalerEl) scalerEl.style.transform = '';
     return pdf;
   };
+
+  // Per-view keyboard shortcuts. Ctrl+S saves the invoice (without PDF) if it's
+  // meaningful; Ctrl+P kicks off the PDF download. Lives here rather than in
+  // App.jsx because both actions need invoice-form state (totals, items, etc.).
+  useEffect(() => {
+    const onKey = (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      if (e.key === 's' || e.key === 'S') {
+        if (!isMeaningfulInvoice()) return; // nothing to save
+        e.preventDefault();
+        saveInvoiceToDB(true).then(() => toast('Invoice saved', 'success')).catch(() => toast('Save failed', 'error'));
+      } else if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        // Defer to the next tick so the keydown doesn't race the PDF render.
+        setTimeout(() => generatePDF(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMeaningfulInvoice]);
 
   const generatePDF = async () => {
     if (!printRef.current) return;
@@ -1110,11 +1152,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     ['showRateColumn', 'Rate column'],
                     ['showDiscount', 'Discount column'],
                     ['showGST', 'Tax % column (GST/VAT/etc.)'],
+                    ['showCess', 'GST Cess % column (India — tobacco/auto/coal)'],
                   ]},
                   { group: 'Totals', items: [
                     ['showSubtotal', 'Subtotal row'],
                     ['showAmountWords', 'Amount in words'],
                     ['showRoundOff', 'Round-off line'],
+                  ]},
+                  { group: 'Compliance flags (India)', items: [
+                    ['reverseCharge', 'Reverse Charge applies (Section 9(3)/9(4)) — recipient pays GST'],
                   ]},
                   { group: 'Footer', items: [
                     ['showBankDetails', 'Bank details'],
@@ -1130,8 +1176,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.3rem' }}>{section.group}</div>
                     <div className="options-grid">
                       {section.items.map(([key, label]) => {
-                        // These two default to OFF; everything else defaults to ON.
-                        const offByDefault = key === 'showRoundOff' || key === 'showAccountLabel';
+                        // These default to OFF; everything else defaults to ON.
+                        const offByDefault = key === 'showRoundOff' || key === 'showAccountLabel'
+                          || key === 'showCess' || key === 'reverseCharge';
                         const checked = offByDefault ? !!invoiceOptions[key] : invoiceOptions[key] !== false;
                         return (
                           <label key={key} className="option-toggle">
@@ -1428,6 +1475,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                       ))}
                       <option value="__custom__">{countryTaxRates.includes(Number(item.taxPercent)) ? 'Custom…' : `${item.taxPercent}% (custom)`}</option>
                     </select>
+                  </div>
+                )}
+                {showGST && invoiceOptions.showCess && (profile?.country || 'India') === 'India' && (
+                  <div className="line-item-field" style={{ flex: 0.8 }}>
+                    <label className="form-label" title="GST Compensation Cess (tobacco / auto / coal etc.)">Cess %</label>
+                    <input type="number" min="0" max="500" step="any" className="form-input"
+                      value={item.cessPercent || 0}
+                      onChange={(e) => handleItemChange(item.id, 'cessPercent', clampNonNeg(e.target.value))} />
                   </div>
                 )}
                 <div className="line-item-field line-item-delete">

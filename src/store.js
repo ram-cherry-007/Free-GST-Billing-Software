@@ -272,16 +272,30 @@ const restoreLocalStorage = (map) => {
   });
 };
 
+// Cached app version — pulled from server once per session via /api/version so the
+// frontend doesn't have to ship its own copy of package.json. Falls back to 'unknown'
+// only if the server is unreachable, which only happens during the brief startup
+// window before the user opens the app.
+let cachedAppVersion = null;
+const getAppVersion = async () => {
+  if (cachedAppVersion) return cachedAppVersion;
+  try {
+    const { current } = await apiFetch(`${API}/version`);
+    if (current) { cachedAppVersion = current; return current; }
+  } catch { /* server down — best effort */ }
+  return 'unknown';
+};
+
 // Full export. Returns the JSON-serialised bundle (server data + localStorage).
 // Pass `selection` to limit what's included — undefined ⇒ everything.
 //
 // `selection` shape: { profile, profiles, bills, clients, products, expenses,
 //   purchases, recurring, receipts, termsTemplates, meta, localStorage } — each bool.
 export const exportAllData = async (selection) => {
-  const all = await apiFetch(`${API}/export`);
+  const [all, version] = await Promise.all([apiFetch(`${API}/export`), getAppVersion()]);
   const sel = selection || { profile: true, profiles: true, bills: true, clients: true, products: true, expenses: true, purchases: true, recurring: true, receipts: true, termsTemplates: true, meta: true, localStorage: true };
 
-  const data = { exportedAt: new Date().toISOString(), version: '1.4.0', __freegstbill_backup: true };
+  const data = { exportedAt: new Date().toISOString(), version, __freegstbill_backup: true };
   if (sel.profile)        data.profile = all.profile;
   if (sel.profiles)       data.profiles = all.profiles;
   if (sel.bills)          data.bills = all.bills;

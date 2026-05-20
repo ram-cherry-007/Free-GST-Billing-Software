@@ -438,6 +438,12 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               </div>
             )
           )}
+          {totals.cess > 0 && (
+            <div className="inv-total-row">
+              <span>GST Cess</span>
+              <span>{fmt(totals.cess)}</span>
+            </div>
+          )}
           {totals.tcsAmount > 0 && (
             <div className="inv-total-row">
               <span>TCS{options.tcsSection ? ` (${options.tcsSection} @ ${options.tcsRate}%)` : ''}</span>
@@ -475,6 +481,24 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
           )}
         </div>
       </div>
+
+      {/* Reverse-charge declaration (India) — printed prominently between the
+          tax block and the footer when the seller has flagged this invoice as
+          RCM. The buyer is responsible for paying GST under Section 9(3)/9(4). */}
+      {options.reverseCharge && isIndia && showGST && (
+        <div style={{ margin: '0 2rem 0.5rem', padding: '0.5rem 0.75rem', background: 'var(--warn-bg)', border: '1px solid var(--warn-border)', borderRadius: 4, fontSize: '0.78rem', color: 'var(--warn-text)' }}>
+          <strong>Reverse Charge applicable.</strong> GST is payable by the recipient under Section 9(3)/9(4) of the CGST Act.
+        </div>
+      )}
+
+      {/* Composition-scheme mandatory declaration — Rule 46A of CGST Rules. The
+          exact wording is prescribed; do not paraphrase. */}
+      {invoiceType === 'composition' && (
+        <div style={{ margin: '0 2rem 0.5rem', padding: '0.5rem 0.75rem', background: 'var(--info-bg)', border: '1px solid var(--info-border)', borderRadius: 4, fontSize: '0.78rem', color: 'var(--info-text)', fontStyle: 'italic' }}>
+          "Composition taxable person, not eligible to collect tax on supplies."
+          &nbsp;<span style={{ fontStyle: 'normal', fontSize: '0.7rem' }}>(Rule 46A, CGST Rules)</span>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="inv-footer" style={pdfStyle !== 'classic' ? { padding: '1rem 2rem' } : {}}>

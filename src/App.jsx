@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle } from 'lucide-react';
-import { getAllProfiles, saveProfile, getEnabledModules } from './store';
-import { isModuleEnabled } from './utils';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell } from 'lucide-react';
+import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts } from './store';
+import { isModuleEnabled, getUpcomingFilings } from './utils';
 import Dashboard from './components/Dashboard';
 import InvoiceGenerator from './components/InvoiceGenerator';
 import SettingsView from './components/SettingsView';
@@ -67,6 +67,124 @@ function App() {
     const interval = setInterval(check, 6 * 60 * 60 * 1000);
     return () => { cancelled = true; clearTimeout(initial); clearInterval(interval); };
   }, []);
+
+  // ---- Notification centre ----
+  // Computed from server data on app boot + every 10 minutes; tucked under a
+  // bell icon next to dark-mode toggle in the sidebar. Each section is one
+  // click away from the relevant page.
+  const [notifications, setNotifications] = useState({ overdue: [], dueSoon: [], lowStock: [], filings: [] });
+  const [showNotifs, setShowNotifs] = useState(false);
+  const notifTotal = notifications.overdue.length + notifications.dueSoon.length
+    + notifications.lowStock.length + notifications.filings.length;
+
+  useEffect(() => {
+    let cancelled = false;
+    const compute = async () => {
+      try {
+        const [bills, products] = await Promise.all([
+          getAllBills().catch(() => []),
+          getAllProducts().catch(() => []),
+        ]);
+        if (cancelled) return;
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 3);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const overdue = bills.filter(b => {
+          const d = b.data?.details?.dueDate;
+          return d && d < today && b.status !== 'paid';
+        });
+        const dueSoon = bills.filter(b => {
+          const d = b.data?.details?.dueDate;
+          return d && d >= today && d <= tomorrowStr && b.status !== 'paid';
+        });
+        const lowStock = products.filter(p => (p.stock ?? 999) <= 5);
+        const filings = getUpcomingFilings().filter(f => f.daysAway <= 10);
+        setNotifications({ overdue, dueSoon, lowStock, filings });
+      } catch { /* offline / server down — leave previous counts */ }
+    };
+    compute();
+    const interval = setInterval(compute, 10 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [currentView]); // recompute on view change so the bell stays fresh after the user records a payment
+
+  // ---- Keyboard shortcuts + command palette ----
+  // Ctrl+K opens a Spotlight-style command palette; Ctrl+N starts a new
+  // invoice from anywhere; Ctrl+/ shows the full shortcuts list. Ctrl+S /
+  // Ctrl+P live in InvoiceGenerator (they need invoice-form context). All
+  // global handlers also accept Meta (⌘) for macOS users.
+  const [showPalette, setShowPalette] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [paletteIdx, setPaletteIdx] = useState(0);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+
+  // Command palette actions — assembled fresh each open so it reflects current
+  // module-enabled / current-view context. Filters by case-insensitive substring.
+  const paletteActions = useMemo(() => {
+    const acts = [
+      { label: 'New Invoice', hint: 'Ctrl+N', run: () => { handleNewInvoice(); } },
+    ];
+    navItems.forEach(item => {
+      if (item.id === 'new') return; // already covered
+      acts.push({ label: `Go to ${item.label}`, hint: '', run: item.onClick || (() => setCurrentView(item.id)) });
+    });
+    acts.push({ label: 'Go to Settings', hint: '', run: () => setCurrentView('settings') });
+    acts.push({ label: 'Toggle dark mode', hint: '', run: () => setDarkMode(d => !d) });
+    acts.push({ label: 'Show keyboard shortcuts', hint: 'Ctrl+/', run: () => setShowShortcutsHelp(true) });
+    if (updateInfo?.updateAvailable) {
+      acts.push({ label: `View update — v${updateInfo.latest}`, hint: '', run: () => setShowUpdateModal(true) });
+    }
+    return acts;
+  }, [navItems, updateInfo, handleNewInvoice]);
+
+  const filteredPalette = paletteActions.filter(a =>
+    !paletteQuery.trim() || a.label.toLowerCase().includes(paletteQuery.toLowerCase())
+  );
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      // Don't hijack shortcuts when the user is typing in an editable element —
+      // except for our own palette / help triggers, which should work everywhere.
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const editable = tag === 'input' || tag === 'textarea' || e.target?.isContentEditable;
+
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        setShowPalette(p => !p);
+        setPaletteQuery('');
+        setPaletteIdx(0);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        setShowShortcutsHelp(s => !s);
+      } else if ((e.key === 'n' || e.key === 'N') && !editable) {
+        e.preventDefault();
+        handleNewInvoice();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the palette is open, arrow-navigate the filtered list with up/down,
+  // Enter to run, Esc to close. Scoped to the palette so we don't accidentally
+  // interfere with form arrow-key behaviour elsewhere.
+  useEffect(() => {
+    if (!showPalette) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); setShowPalette(false); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setPaletteIdx(i => Math.min(i + 1, filteredPalette.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setPaletteIdx(i => Math.max(i - 1, 0)); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const action = filteredPalette[paletteIdx];
+        if (action) { action.run(); setShowPalette(false); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showPalette, paletteIdx, filteredPalette]);
 
   const dismissUpdate = () => {
     if (updateInfo?.latest) {
@@ -383,6 +501,27 @@ function App() {
                 }} />
               </button>
             )}
+            {/* Notification bell — opens a popover listing overdue / due-soon
+                invoices, GST filing deadlines, and low-stock items. Each row
+                is a single click away from the page that fixes it. */}
+            <button
+              className="nav-btn"
+              onClick={() => setShowNotifs(s => !s)}
+              title="Notifications"
+              style={{ position: 'relative' }}
+            >
+              <Bell size={18} />
+              Notifications
+              {notifTotal > 0 && (
+                <span style={{
+                  position: 'absolute', top: '8px', right: '12px',
+                  minWidth: 18, height: 18, padding: '0 5px', borderRadius: '9px',
+                  background: 'var(--danger)', color: '#fff',
+                  fontSize: '0.65rem', fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{notifTotal > 99 ? '99+' : notifTotal}</span>
+              )}
+            </button>
             <button
               className="nav-btn"
               onClick={() => setDarkMode(!darkMode)}
@@ -464,6 +603,140 @@ function App() {
       </div>
 
       {/* Update modal — release notes + Export-backup-first nudge + Update Now */}
+      {/* Notification popover — rendered as a click-out modal so it works on
+          tablets too. Grouped by category with a navigate-to button per group. */}
+      {showNotifs && (
+        <div className="modal-overlay" onClick={() => setShowNotifs(false)}>
+          <div className="modal-content" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h3 className="section-title" style={{ margin: 0 }}>Notifications</h3>
+              <button className="icon-btn" onClick={() => setShowNotifs(false)} title="Close"><X size={18} /></button>
+            </div>
+            {notifTotal === 0 ? (
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.5rem 0', margin: 0 }}>
+                All clear ✨ — nothing needs your attention right now.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {notifications.overdue.length > 0 && (
+                  <button type="button" className="notice notice-danger" onClick={() => { setShowNotifs(false); setCurrentView('dashboard'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">⚠</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{notifications.overdue.length} overdue invoice{notifications.overdue.length !== 1 ? 's' : ''}</strong>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '0.2rem' }}>
+                        {notifications.overdue.slice(0, 3).map(b => b.invoiceNumber).join(' · ')}{notifications.overdue.length > 3 ? ` · +${notifications.overdue.length - 3} more` : ''}
+                      </div>
+                    </div>
+                  </button>
+                )}
+                {notifications.dueSoon.length > 0 && (
+                  <button type="button" className="notice notice-warn" onClick={() => { setShowNotifs(false); setCurrentView('dashboard'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">⏰</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{notifications.dueSoon.length} invoice{notifications.dueSoon.length !== 1 ? 's' : ''} due in next 3 days</strong>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '0.2rem' }}>
+                        {notifications.dueSoon.slice(0, 3).map(b => `${b.invoiceNumber} (${b.clientName})`).join(' · ')}
+                      </div>
+                    </div>
+                  </button>
+                )}
+                {notifications.filings.length > 0 && (
+                  <button type="button" className="notice notice-info" onClick={() => { setShowNotifs(false); setCurrentView('filing'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">📋</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{notifications.filings.length} GST filing{notifications.filings.length !== 1 ? 's' : ''} due in next 10 days</strong>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '0.2rem' }}>
+                        {notifications.filings.slice(0, 3).map(f => `${f.label} (${f.daysAway === 0 ? 'today' : f.daysAway + 'd'})`).join(' · ')}
+                      </div>
+                    </div>
+                  </button>
+                )}
+                {notifications.lowStock.length > 0 && (
+                  <button type="button" className="notice notice-note" onClick={() => { setShowNotifs(false); setCurrentView('inventory'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">📦</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{notifications.lowStock.length} product{notifications.lowStock.length !== 1 ? 's' : ''} low on stock</strong>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '0.2rem' }}>
+                        {notifications.lowStock.slice(0, 3).map(p => `${p.name} (${p.stock} left)`).join(' · ')}
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Command palette — Ctrl/Cmd+K. Spotlight-style: type to filter actions,
+          ↑/↓ to navigate, Enter to run, Esc to close. */}
+      {showPalette && (
+        <div className="modal-overlay" onClick={() => setShowPalette(false)}>
+          <div className="modal-content" style={{ maxWidth: '520px', padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
+              <Search size={16} style={{ color: 'var(--text-muted)' }} />
+              <input autoFocus type="text" placeholder="Type a command or page name…"
+                value={paletteQuery}
+                onChange={e => { setPaletteQuery(e.target.value); setPaletteIdx(0); }}
+                className="form-input" style={{ border: 0, background: 'transparent', flex: 1, fontSize: '0.95rem' }} />
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Esc</span>
+            </div>
+            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
+              {filteredPalette.length === 0 && (
+                <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1.25rem', margin: 0, fontSize: '0.85rem' }}>
+                  Nothing matches "{paletteQuery}".
+                </p>
+              )}
+              {filteredPalette.map((a, i) => (
+                <button key={a.label} type="button"
+                  onClick={() => { a.run(); setShowPalette(false); }}
+                  onMouseEnter={() => setPaletteIdx(i)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    width: '100%', padding: '0.6rem 1rem', border: 0, cursor: 'pointer',
+                    background: i === paletteIdx ? 'var(--bg-tertiary)' : 'transparent',
+                    color: 'var(--text-primary)', textAlign: 'left', fontSize: '0.88rem',
+                  }}>
+                  <span>{a.label}</span>
+                  {a.hint && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{a.hint}</span>}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: '0.4rem 1rem', borderTop: '1px solid var(--border-color)', fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span><Command size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ctrl+K to toggle · ↑↓ navigate · Enter run</span>
+              <button type="button" onClick={() => { setShowPalette(false); setShowShortcutsHelp(true); }} style={{ background: 'none', border: 0, color: 'var(--primary)', cursor: 'pointer', fontSize: '0.7rem' }}>
+                All shortcuts (Ctrl+/)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard-shortcuts help — Ctrl/Cmd+/. Single-pane reference. */}
+      {showShortcutsHelp && (
+        <div className="modal-overlay" onClick={() => setShowShortcutsHelp(false)}>
+          <div className="modal-content" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 className="section-title" style={{ margin: 0 }}>Keyboard Shortcuts</h3>
+              <button className="icon-btn" onClick={() => setShowShortcutsHelp(false)} title="Close"><X size={18} /></button>
+            </div>
+            <table className="kv-list">
+              <tbody>
+                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>K</kbd></td><td>Open command palette (jump to any page)</td></tr>
+                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>N</kbd></td><td>New invoice</td></tr>
+                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>S</kbd></td><td>Save current invoice (when on the invoice form)</td></tr>
+                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>P</kbd></td><td>Download PDF (when on the invoice form)</td></tr>
+                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>/</kbd></td><td>Toggle this help</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>Close any open modal</td></tr>
+              </tbody>
+            </table>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.75rem', marginBottom: 0 }}>
+              On macOS, use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd>.
+            </p>
+          </div>
+        </div>
+      )}
+
       {showUpdateModal && updateInfo && (
         <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
           <div className="modal-content" style={{ maxWidth: '640px' }} onClick={e => e.stopPropagation()}>

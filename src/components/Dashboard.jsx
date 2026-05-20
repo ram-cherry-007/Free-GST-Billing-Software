@@ -32,6 +32,12 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
   const [fyFilter, setFyFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // Bulk-selection state. Stores a Set of bill IDs (not the bills themselves)
+  // so we don't hold stale references when the underlying bill is edited
+  // elsewhere. Cleared whenever filters change so the user doesn't accidentally
+  // bulk-act on bills they can no longer see.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [paymentModal, setPaymentModal] = useState(null);
   const [paymentInput, setPaymentInput] = useState({ amount: '', date: '', mode: 'bank-transfer', note: '' });
   const [showRemindAll, setShowRemindAll] = useState(false);
@@ -46,13 +52,18 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
       const data = await getAllBills();
       const today = new Date().toISOString().split('T')[0];
 
-      // Auto-detect overdue: if due date passed and not paid, mark as overdue
-      for (const bill of data) {
+      // Auto-detect overdue: if due date passed and not paid, mark as overdue.
+      // Previously this did sequential `await saveBill(bill)` inside a for-loop,
+      // which (a) made N round-trips serialised and (b) silently stopped on the
+      // first failure. Now we collect dirty bills and save them concurrently via
+      // allSettled so one slow save can't block the rest.
+      const dirty = data.filter(bill => {
         const dueDate = bill.data?.details?.dueDate;
-        if (dueDate && dueDate < today && bill.status !== 'paid' && bill.status !== 'overdue') {
-          bill.status = 'overdue';
-          await saveBill(bill);
-        }
+        return dueDate && dueDate < today && bill.status !== 'paid' && bill.status !== 'overdue';
+      });
+      if (dirty.length > 0) {
+        const updates = dirty.map(bill => { bill.status = 'overdue'; return saveBill(bill); });
+        await Promise.allSettled(updates);
       }
 
       setBills(data);
@@ -147,23 +158,116 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
   };
 
   const recordPayment = async () => {
-    if (!paymentInput.amount || parseFloat(paymentInput.amount) <= 0) {
-      toast('Enter a valid amount', 'warning'); return;
-    }
     const amount = parseFloat(paymentInput.amount);
+    // Validate the amount up front — reject negatives, NaN, zero, and "more than
+    // the outstanding balance". Without this, a typo can record ₹9,999,999 against
+    // a ₹10,000 invoice and silently invert the books.
+    if (!isFinite(amount) || amount <= 0) {
+      toast('Enter a positive payment amount', 'warning'); return;
+    }
     const bill = paymentModal;
+    const billTotal = Number(bill.totalAmount) || 0;
+    const alreadyPaid = Number(bill.paidAmount) || 0;
+    const outstanding = Math.max(0, billTotal - alreadyPaid);
+    if (amount > outstanding + 0.01) { // 0.01 fudge for rounding
+      const proceed = confirm(`This payment (${formatCurrency(amount, bill.currency)}) is more than the outstanding balance (${formatCurrency(outstanding, bill.currency)}). Record it as an overpayment anyway?`);
+      if (!proceed) return;
+    }
     const payments = [...(bill.payments || []), {
       amount, date: paymentInput.date, mode: paymentInput.mode,
       note: paymentInput.note, recordedAt: new Date().toISOString(),
     }];
-    const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+    const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     await saveBill({
       ...bill, payments, paidAmount: totalPaid,
-      status: totalPaid >= bill.totalAmount ? 'paid' : 'partial',
+      status: totalPaid >= billTotal ? 'paid' : 'partial',
     });
     toast(`Payment of ${formatCurrency(amount, bill.currency)} recorded`, 'success');
     setPaymentModal(null);
     loadBills();
+  };
+
+  // ---- Bulk operations ----
+  // All bulk handlers fan out concurrently via Promise.allSettled so one
+  // failure can't strand the rest. After every bulk action we refresh the
+  // bills list and clear the selection.
+  const toggleSelect = (id) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleSelectAllVisible = () => setSelectedIds(prev => {
+    const allVisible = filtered.every(b => prev.has(b.id));
+    if (allVisible) {
+      // Deselect only the visible ones, leave any off-screen selections alone
+      const next = new Set(prev);
+      filtered.forEach(b => next.delete(b.id));
+      return next;
+    }
+    const next = new Set(prev);
+    filtered.forEach(b => next.add(b.id));
+    return next;
+  });
+  const clearSelection = () => setSelectedIds(new Set());
+  const getSelectedBills = () => bills.filter(b => selectedIds.has(b.id));
+
+  const bulkMarkStatus = async (newStatus) => {
+    const sel = getSelectedBills();
+    if (sel.length === 0) return;
+    if (!confirm(`Mark ${sel.length} invoice${sel.length !== 1 ? 's' : ''} as ${newStatus}?`)) return;
+    setBulkBusy(true);
+    try {
+      const updates = sel.map(b => saveBill({
+        ...b,
+        status: newStatus,
+        ...(newStatus === 'paid' ? { paidAmount: b.totalAmount || 0 } : {}),
+      }));
+      const results = await Promise.allSettled(updates);
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) toast(`${sel.length - failed} updated, ${failed} failed`, 'warning');
+      else toast(`Marked ${sel.length} as ${newStatus}`, 'success');
+      clearSelection();
+      loadBills();
+    } catch (err) { toast('Bulk update failed: ' + err.message, 'error'); }
+    setBulkBusy(false);
+  };
+
+  const bulkDelete = async () => {
+    const sel = getSelectedBills();
+    if (sel.length === 0) return;
+    if (!confirm(`Delete ${sel.length} invoice${sel.length !== 1 ? 's' : ''}? This cannot be undone (the PDF copies in Saved Invoices/ stay).`)) return;
+    setBulkBusy(true);
+    try {
+      const results = await Promise.allSettled(sel.map(b => deleteBill(b.id)));
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) toast(`${sel.length - failed} deleted, ${failed} failed`, 'warning');
+      else toast(`Deleted ${sel.length} invoice${sel.length !== 1 ? 's' : ''}`, 'success');
+      clearSelection();
+      loadBills();
+    } catch (err) { toast('Bulk delete failed: ' + err.message, 'error'); }
+    setBulkBusy(false);
+  };
+
+  const bulkExportJSON = () => {
+    const sel = getSelectedBills();
+    if (sel.length === 0) return;
+    // Lightweight "give me these N bills as a portable file". Different from
+    // the full Settings → Export Backup — this is a per-selection share, e.g.
+    // for sending a CA only Q1 invoices. Could be re-imported via the
+    // existing Import Backup modal (which only restores ticked sections).
+    const blob = new Blob([JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      __freegstbill_backup: true,
+      __selection: true,
+      bills: sel,
+    }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `freegstbill-bills-${sel.length}-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast(`Exported ${sel.length} invoice${sel.length !== 1 ? 's' : ''} as JSON`, 'success');
   };
 
   const shareWhatsApp = (bill) => {
@@ -384,6 +488,33 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
           {hasFilters && <button className="icon-btn icon-btn-red" onClick={clearFilters} title="Clear"><X size={15} /></button>}
         </div>
 
+        {/* Bulk-action toolbar — only renders when at least one row is ticked. */}
+        {selectedIds.size > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+            padding: '0.6rem 0.85rem', marginBottom: '0.6rem',
+            background: 'var(--info-bg)', border: '1px solid var(--info-border)',
+            borderRadius: '8px', color: 'var(--info-text)',
+          }}>
+            <strong style={{ fontSize: '0.88rem' }}>{selectedIds.size} selected</strong>
+            <button type="button" className="btn btn-secondary" disabled={bulkBusy} onClick={() => bulkMarkStatus('paid')}
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}><CheckCircle size={13} /> Mark paid</button>
+            <button type="button" className="btn btn-secondary" disabled={bulkBusy} onClick={() => bulkMarkStatus('unpaid')}
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}><Clock size={13} /> Mark unpaid</button>
+            <button type="button" className="btn btn-secondary" disabled={bulkBusy} onClick={() => bulkMarkStatus('overdue')}
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}><AlertTriangle size={13} /> Mark overdue</button>
+            <button type="button" className="btn btn-secondary" disabled={bulkBusy} onClick={bulkExportJSON}
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}><FileText size={13} /> Export selected</button>
+            <button type="button" className="btn btn-secondary" disabled={bulkBusy} onClick={bulkDelete}
+              style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>
+              <Trash2 size={13} /> Delete
+            </button>
+            <button type="button" className="icon-btn" onClick={clearSelection} title="Clear selection" style={{ marginLeft: 'auto' }}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <div className="empty-state">
             <FileText size={48} />
@@ -395,6 +526,13 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: '32px', padding: '0.5rem 0.25rem 0.5rem 0.75rem' }}>
+                    <input type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(b => selectedIds.has(b.id))}
+                      onChange={toggleSelectAllVisible}
+                      title="Select all visible"
+                      style={{ width: 15, height: 15, accentColor: 'var(--primary)', cursor: 'pointer' }} />
+                  </th>
                   <th>Date</th>
                   <th>Invoice No.</th>
                   <th>Type</th>
@@ -413,7 +551,12 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
                   const daysOverdue = isOverdue ? Math.floor((new Date() - new Date(bill.data.details.dueDate)) / 86400000) : 0;
                   const billCurrency = bill.currency || bill.data?.invoiceOptions?.currency || 'INR';
                   return (
-                    <tr key={bill.id} className={isOverdue || status === 'overdue' ? 'row-overdue' : ''}>
+                    <tr key={bill.id} className={isOverdue || status === 'overdue' ? 'row-overdue' : ''}
+                      style={selectedIds.has(bill.id) ? { background: 'var(--info-bg)' } : undefined}>
+                      <td style={{ padding: '0.5rem 0.25rem 0.5rem 0.75rem' }}>
+                        <input type="checkbox" checked={selectedIds.has(bill.id)} onChange={() => toggleSelect(bill.id)}
+                          style={{ width: 15, height: 15, accentColor: 'var(--primary)', cursor: 'pointer' }} />
+                      </td>
                       <td className="text-muted">{new Date(bill.invoiceDate).toLocaleDateString('en-IN')}</td>
                       <td><span className="invoice-badge">{bill.invoiceNumber}</span></td>
                       <td><span className="type-badge">{(INVOICE_TYPES[bill.invoiceType || 'tax-invoice'])?.label}</span></td>

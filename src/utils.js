@@ -51,11 +51,24 @@ export const formatCurrency = (amount, currency = 'INR') => {
 // Compute the per-item tax breakdown.
 // `taxInclusive=true` means rate already includes tax (MRP-style) — back-calculate the
 // taxable value. This matches the bill form's "Prices include tax" toggle.
-export const calculateLineItemTax = (item, taxInclusive = false) => {
-  const amount = item.quantity * item.rate;
-  const discount = item.discount || 0;
-  const grossAfterDiscount = amount - discount;
-  const taxRate = item.taxPercent || 0;
+//
+// Inputs are defensively coerced: `Number(...)` turns strings (from CSV import) into
+// numbers; `isFinite` filters out NaN/Infinity; `Math.max(0, ...)` clamps negatives.
+// The form clamps these at input time via `clampNonNeg`, but anyone calling the
+// helper directly (e.g. CSV import, recurring template materialisation) gets the
+// same safety net here.
+const finiteNonNeg = (n) => {
+  const x = Number(n);
+  return isFinite(x) && x > 0 ? x : 0;
+};
+
+export const calculateLineItemTax = (item = {}, taxInclusive = false) => {
+  const qty = finiteNonNeg(item.quantity);
+  const rate = finiteNonNeg(item.rate);
+  const discount = finiteNonNeg(item.discount);
+  const taxRate = finiteNonNeg(item.taxPercent);
+  const amount = qty * rate;
+  const grossAfterDiscount = Math.max(0, amount - discount); // discount can't exceed line value
   if (taxInclusive && taxRate > 0) {
     const afterDiscount = grossAfterDiscount / (1 + taxRate / 100);
     const taxAmount = grossAfterDiscount - afterDiscount;
@@ -87,7 +100,14 @@ export const INVOICE_TYPES = {
     prefix: 'BOS',
     title: 'BILL OF SUPPLY',
     showGST: false,
-    description: 'For exempt goods/services or composition dealers',
+    description: 'For exempt goods/services or non-composition dealers selling exempt supplies',
+  },
+  'composition': {
+    label: 'Composition (Bill of Supply)',
+    prefix: 'COMP',
+    title: 'BILL OF SUPPLY',
+    showGST: false,
+    description: 'For composition-scheme dealers under Section 10. Auto-adds Rule 46A declaration.',
   },
   'credit-note': {
     label: 'Credit Note',
@@ -227,10 +247,13 @@ export const getStateCode = (stateOrGstin) => {
   return GST_STATE_CODES[s.toLowerCase()] || '';
 };
 
-// Format date as DD-MM-YYYY (GST portal format)
+// Format date as DD-MM-YYYY (GST portal format).
+// Guard against malformed input — `new Date("2026-13-45")` is an Invalid Date
+// whose getDate() returns NaN, producing "NaN-NaN-NaN" in GSTR-1 export rows.
 export const formatDateGST = (dateStr) => {
   if (!dateStr) return '';
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();
@@ -321,6 +344,40 @@ export const generateEWayBillJSON = (profile, client, details, items, totals, in
       itemList: itemList,
     }]
   };
+};
+
+// Upcoming Indian GST / TDS filing due dates relative to `today`. Returns an
+// ordered list capped at 60 days out so the notifications centre doesn't show
+// 3-month-distant items as "due soon".
+//
+// Cadence (monthly filer; QRMP / quarterly users will see the same dates but
+// only need to act on their schedule):
+//   GSTR-1   — 11th of the following month
+//   GSTR-3B  — 20th of the following month
+//   Form 26Q — 31st of the month following quarter end (Jul / Oct / Jan / Apr)
+//   Form 27EQ — 15th of the month following quarter end
+export const getUpcomingFilings = (today = new Date()) => {
+  const out = [];
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const push = (label, dueDate) => {
+    const diff = Math.round((dueDate - t) / 86400000);
+    if (diff >= 0 && diff <= 60) out.push({ label, dueDate: dueDate.toISOString().split('T')[0], daysAway: diff });
+  };
+  // Iterate next 3 months so we catch upcoming month-end deadlines.
+  for (let i = 0; i < 3; i++) {
+    const nextMonth = new Date(t.getFullYear(), t.getMonth() + i, 1);
+    const m = nextMonth.getMonth();
+    const y = nextMonth.getFullYear();
+    push(`GSTR-1 (${nextMonth.toLocaleString('en-IN', { month: 'short', year: 'numeric' })})`, new Date(y, m + 1, 11));
+    push(`GSTR-3B (${nextMonth.toLocaleString('en-IN', { month: 'short', year: 'numeric' })})`, new Date(y, m + 1, 20));
+    // Quarterly TDS / TCS — applies to the quarter the month falls into.
+    const quarterEnd = m % 3 === 2; // Mar / Jun / Sep / Dec
+    if (quarterEnd) {
+      push(`Form 26Q (TDS Q ending ${nextMonth.toLocaleString('en-IN', { month: 'short' })})`, new Date(y, m + 2, 0)); // last day of next month after quarter
+      push(`Form 27EQ (TCS Q ending ${nextMonth.toLocaleString('en-IN', { month: 'short' })})`, new Date(y, m + 1, 15));
+    }
+  }
+  return out.sort((a, b) => a.daysAway - b.daysAway);
 };
 
 // Get filing period as MMYYYY from a date range

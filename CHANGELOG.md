@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.1] — 2026-04-30
+
+Quality-of-life release executed from the post-v1.5 audit. Five bug fixes,
+three power-user features (bulk ops, keyboard shortcuts, notifications),
+and three GST compliance additions (Cess, RCM, Composition variant). No
+data migration — all changes additive and backward-compatible.
+
+### Fixed — confirmed bugs from the audit
+
+- **Export backup hardcoded `version: '1.4.0'`** — now reads live from the
+  server via `/api/version` and caches per session ([src/store.js](src/store.js)).
+- **Dashboard overdue auto-detection** ran `await saveBill(bill)` inside a
+  for-loop — one failure stopped all subsequent updates and saves were
+  serialised. Now collects dirty bills and fires `Promise.allSettled`;
+  most loads do zero work because the filter pre-checks
+  ([src/components/Dashboard.jsx](src/components/Dashboard.jsx)).
+- **`calculateLineItemTax()` accepted NaN / negative / string inputs** and
+  silently propagated `NaN` through totals. Now defensively coerces every
+  field via `finiteNonNeg` and clamps the discount to never exceed line
+  value. UI inputs were already clamped, but CSV imports and recurring
+  template materialisation now get the same safety net
+  ([src/utils.js](src/utils.js)).
+- **`recordPayment()` accepted negative and overpayment amounts silently**.
+  Now rejects ≤ 0, validates against outstanding balance, and asks for
+  confirmation on intentional overpayments ([src/components/Dashboard.jsx](src/components/Dashboard.jsx)).
+- **`formatDateGST()` returned `"NaN-NaN-NaN"`** for malformed dates,
+  silently corrupting GSTR-1 rows. Now returns empty string on Invalid
+  Date ([src/utils.js](src/utils.js)).
+
+### Added — Bulk operations on Bills list
+
+Checkbox column with select-all-visible. When any rows are ticked, a
+sticky toolbar shows: **Mark paid** · **Mark unpaid** · **Mark overdue**
+· **Export selected as JSON** · **Delete**. All bulk handlers use
+`Promise.allSettled` so a single failed save doesn't strand the batch.
+
+### Added — Keyboard shortcuts + command palette
+
+- **`Ctrl/⌘+K`** — Spotlight-style command palette. Type to filter, ↑/↓
+  to navigate, Enter to run, Esc to close. Actions: New Invoice · jump
+  to any nav page · toggle dark mode · open update modal · show
+  shortcuts help.
+- **`Ctrl/⌘+N`** — new invoice from anywhere (skipped when typing in an
+  input/textarea).
+- **`Ctrl/⌘+S`** — save current invoice (only on the invoice form, only
+  when the invoice has meaningful content).
+- **`Ctrl/⌘+P`** — download current invoice as PDF (only on the invoice
+  form).
+- **`Ctrl/⌘+/`** — toggle a keyboard-shortcuts help modal.
+- New `kbd` styling in CSS for the help modal's key cap visuals.
+
+### Added — Notification centre
+
+Sidebar **🔔 Notifications** button with a red count badge. Popover lists:
+
+- 🔴 Overdue invoices (with sample invoice numbers, click → Dashboard)
+- 🟡 Invoices due in the next 3 days (click → Dashboard)
+- 🔵 GST filings due in the next 10 days — GSTR-1 (11th), GSTR-3B (20th),
+  Form 26Q (last day of month after quarter), Form 27EQ (15th of month
+  after quarter), computed by the new `getUpcomingFilings()` helper
+  (click → GST Returns)
+- 🟢 Products low on stock (click → Inventory)
+
+Computed on mount + every 10 minutes; also recomputes on view change so
+the badge stays fresh after the user records a payment or sells stock.
+Click outside the popover to dismiss.
+
+### Added — GST compliance trio
+
+- **GST Compensation Cess** — opt-in per-line `cessPercent` field
+  (Customize → Items → "GST Cess % column"). Computed off the post-discount
+  taxable value (back-calculates correctly when tax-inclusive prices are
+  used) and added on top of the invoice total. Renders as its own row in
+  the PDF totals block when non-zero.
+- **Reverse Charge Mechanism flag** — invoice-level toggle (Customize →
+  Compliance flags → "Reverse Charge applies"). When set, the PDF prints
+  a prominent declaration: *"Reverse Charge applicable. GST is payable
+  by the recipient under Section 9(3)/9(4) of the CGST Act."*
+- **Composition-scheme invoice variant** — new invoice type alongside
+  Bill of Supply / Tax Invoice / etc. Same template as BoS but auto-adds
+  the Rule 46A declaration: *"Composition taxable person, not eligible
+  to collect tax on supplies."*
+
+### Notes for upgraders
+
+- Saved invoices that pre-date these features render identically — `cess`,
+  `reverseCharge` and the Cess column are all opt-in and absent from the
+  defaults.
+- Composition is just an INVOICE_TYPES entry — switching to it on a new
+  invoice picks up the COMP prefix and the declaration automatically.
+
+---
+
 ## [1.5.0] — 2026-04-30
 
 Multi-account payment support. A profile can now hold many bank / UPI

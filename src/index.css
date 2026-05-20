@@ -1521,6 +1521,17 @@ code, .code-chip {
   padding: 1px 5px; border-radius: 3px; font-size: 0.85em;
 }
 
+/* Keyboard shortcut chip — small "key cap" look for the shortcuts help modal */
+kbd {
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-bottom-width: 2px;
+  padding: 1px 6px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8em;
+  font-weight: 600;
+}
+
 /* Extra section editor */
 .extra-section-editor {
   background: var(--primary-light);
