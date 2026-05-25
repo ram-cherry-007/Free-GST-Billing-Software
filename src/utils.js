@@ -390,30 +390,58 @@ export const getFilingPeriod = (dateStr) => {
 
 // ========== Units of Measurement ==========
 // label = display, uqc = GST portal Unit Quantity Code (used in GSTR-1 HSN summary)
+// Each unit is tagged with the kind of supply it usually measures so the
+// service-mode invoice can prioritise time-based units in the dropdown and
+// pick a sensible default ("Hrs" instead of "Nos") for new line items.
+// `kind: 'goods' | 'services' | 'both'`. `'both'` shows in either mode.
 export const BUILTIN_UNITS = [
-  { label: 'Pcs',   uqc: 'PCS' },
-  { label: 'Nos',   uqc: 'NOS' },
-  { label: 'Kg',    uqc: 'KGS' },
-  { label: 'g',     uqc: 'GMS' },
-  { label: 'Tonne', uqc: 'TON' },
-  { label: 'Ltr',   uqc: 'LTR' },
-  { label: 'ml',    uqc: 'MLT' },
-  { label: 'Mtr',   uqc: 'MTR' },
-  { label: 'cm',    uqc: 'CMS' },
-  { label: 'Ft',    uqc: 'FTS' },
-  { label: 'In',    uqc: 'INS' },
-  { label: 'Sq.ft', uqc: 'SQF' },
-  { label: 'Sq.m',  uqc: 'SQM' },
-  { label: 'Hrs',   uqc: 'HRS' },
-  { label: 'Day',   uqc: 'DAY' },
-  { label: 'Box',   uqc: 'BOX' },
-  { label: 'Dozen', uqc: 'DOZ' },
-  { label: 'Pair',  uqc: 'PRS' },
-  { label: 'Set',   uqc: 'SET' },
-  { label: 'Bag',   uqc: 'BAG' },
-  { label: 'Roll',  uqc: 'ROL' },
-  { label: 'Bottle', uqc: 'BTL' },
+  { label: 'Pcs',     uqc: 'PCS', kind: 'goods' },
+  { label: 'Nos',     uqc: 'NOS', kind: 'both' },
+  { label: 'Kg',      uqc: 'KGS', kind: 'goods' },
+  { label: 'g',       uqc: 'GMS', kind: 'goods' },
+  { label: 'Tonne',   uqc: 'TON', kind: 'goods' },
+  { label: 'Ltr',     uqc: 'LTR', kind: 'goods' },
+  { label: 'ml',      uqc: 'MLT', kind: 'goods' },
+  { label: 'Mtr',     uqc: 'MTR', kind: 'goods' },
+  { label: 'cm',      uqc: 'CMS', kind: 'goods' },
+  { label: 'Ft',      uqc: 'FTS', kind: 'goods' },
+  { label: 'In',      uqc: 'INS', kind: 'goods' },
+  { label: 'Sq.ft',   uqc: 'SQF', kind: 'both'  }, // construction services use this too
+  { label: 'Sq.m',    uqc: 'SQM', kind: 'both'  },
+  { label: 'Hrs',     uqc: 'HRS', kind: 'services' },
+  { label: 'Day',     uqc: 'DAY', kind: 'services' },
+  { label: 'Week',    uqc: 'OTH', kind: 'services' },
+  { label: 'Month',   uqc: 'OTH', kind: 'services' },
+  { label: 'Year',    uqc: 'OTH', kind: 'services' },
+  { label: 'Visit',   uqc: 'OTH', kind: 'services' },
+  { label: 'Session', uqc: 'OTH', kind: 'services' },
+  { label: 'Project', uqc: 'OTH', kind: 'services' },
+  { label: 'Word',    uqc: 'OTH', kind: 'services' }, // translators / writers
+  { label: 'Page',    uqc: 'OTH', kind: 'services' },
+  { label: 'Box',     uqc: 'BOX', kind: 'goods' },
+  { label: 'Dozen',   uqc: 'DOZ', kind: 'goods' },
+  { label: 'Pair',    uqc: 'PRS', kind: 'goods' },
+  { label: 'Set',     uqc: 'SET', kind: 'goods' },
+  { label: 'Bag',     uqc: 'BAG', kind: 'goods' },
+  { label: 'Roll',    uqc: 'ROL', kind: 'goods' },
+  { label: 'Bottle',  uqc: 'BTL', kind: 'goods' },
 ];
+
+// Default unit per invoice mode — used when adding a new line item so the user
+// doesn't have to flip the unit dropdown 90% of the time.
+export const getDefaultUnitForMode = (mode) => {
+  if (mode === 'services') return 'Hrs';
+  if (mode === 'mixed') return 'Nos';
+  return 'Nos'; // goods (default)
+};
+
+// Filter units by invoice mode for the dropdown. Service mode hides
+// kg/ltr/box etc. (the user can still pick them via "Add custom…" if
+// they truly need a goods unit on a service invoice — rare).
+export const filterUnitsByMode = (units, mode) => {
+  if (mode === 'mixed' || !mode) return units;
+  return units.filter(u => u.kind === mode || u.kind === 'both' || u.custom);
+};
 
 const CUSTOM_UNITS_KEY = 'gst_customUnits';
 

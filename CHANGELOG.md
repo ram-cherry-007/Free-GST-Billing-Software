@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] — 2026-04-30
+
+Two big workflow improvements: **service-mode invoices** (with units that
+make sense for time-based work) and **inline recurring** (turn any invoice
+into a recurring template by ticking a single checkbox — server-side
+auto-generates new invoices on schedule on every app boot).
+
+### Added — Service invoice mode
+
+- **Goods / Services / Mixed toggle** at the top of the invoice form. Drives:
+  - Default unit on new line items — `Nos` for goods, `Hrs` for services
+  - Unit dropdown filtering — services hides Kg / Ltr / Tonne / Bag etc.
+    so the user sees Hrs / Day / Week / Month / Visit / Session / Project /
+    Word / Page first; goods hides the time-based ones
+  - Helpful "💡 Use a SAC code in the HSN field" hint on services
+- **New built-in units** with kind tags: Week, Month, Year, Visit, Session,
+  Project, Word, Page — all marked `kind: 'services'`. Existing units
+  classified as `goods`, `services`, or `both`.
+- **Smart unit memory** — adding a 2nd line item uses the same unit as the
+  1st, so a 5-row services invoice doesn't make you pick "Hrs" five times.
+- Custom user-defined units always show regardless of mode (escape hatch).
+- The currently-selected unit on each line always shows even if the mode
+  would otherwise hide it — switching mode mid-edit never blanks the
+  dropdown.
+
+### Added — Inline recurring invoices
+
+You no longer have to build a Recurring template separately. Tick **🔁 Make
+this a recurring invoice** in the Customize panel and you get:
+
+- **Frequency**: Weekly / Monthly / Quarterly / Yearly
+- **Interval**: every N (e.g. every 2 weeks, every 3 months)
+- **Next invoice date** (date picker, defaults to one cycle from today)
+- **End condition**:
+  - *Never* (default — until you pause it in Recurring view)
+  - *On a specific date*
+  - *After N invoices have been generated* (perfect for fixed-term contracts)
+
+On save, the invoice is created normally AND a recurring template is
+written to `data/recurring/` with everything needed to clone it: client
+snapshot, items, custom terms / notes / extra sections, invoiceOptions
+(minus the recurring config itself, to avoid infinite recursion).
+
+The existing Recurring Invoices view in the sidebar remains the place to
+edit, pause, or delete templates after the fact.
+
+### Added — Server-side auto-fire
+
+`server.js` now runs `processDueRecurring()` 3 seconds after boot and once
+every 24 hours afterwards. For every template with `nextDate <= today` and
+`active`, the server:
+
+1. Generates a fresh invoice number for the matching type prefix using the
+   same atomic counter the frontend uses (race-free across both)
+2. Resolves the **live** business profile (so renames since the template
+   was created flow through, matching v1.4.2's company-name behaviour)
+3. Writes a new bill snapshot dated today with the template's items + client
+4. Advances the template's `nextDate` by `frequency × interval`
+5. Increments `occurrencesCreated`
+6. Respects `endMode: 'onDate'` / `endMode: 'afterN'` and stops automatically
+7. Writes a breadcrumb to `data/meta.json` so the UI can show a "X recurring
+   invoices auto-generated today" notification
+
+The notification centre 🔔 surfaces this with a 🔁 row that click-throughs
+to the Dashboard so the user can review the freshly-created bills.
+
+### Notes on the auto-fire trigger
+
+For most users this fires on every Windows login (the Startup-folder
+shortcut starts the server when they log in). Users who never reboot get
+the daily setInterval check as a backstop. A proper Windows Task Scheduler
+entry that fires regardless of whether the user's logged in is on the v2.0
+roadmap — for v1.6 the boot trigger covers ~95% of realistic use.
+
+### Backward compatibility
+
+- `invoiceOptions.invoiceMode` defaults to `'goods'` → old invoices behave
+  identically.
+- `invoiceOptions.recurring` defaults to `null` → no recurring template is
+  created unless the user explicitly ticks the toggle.
+- Existing recurring templates created via the standalone Recurring
+  Invoices view also auto-fire on boot now (they share the same template
+  shape) — net win for them too, no migration required.
+
+---
+
 ## [1.5.3] — 2026-04-30
 
 Hotfix. Production build threw `Uncaught ReferenceError: Cannot access 'Nt'

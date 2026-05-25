@@ -72,10 +72,11 @@ function App() {
   // Computed from server data on app boot + every 10 minutes; tucked under a
   // bell icon next to dark-mode toggle in the sidebar. Each section is one
   // click away from the relevant page.
-  const [notifications, setNotifications] = useState({ overdue: [], dueSoon: [], lowStock: [], filings: [] });
+  const [notifications, setNotifications] = useState({ overdue: [], dueSoon: [], lowStock: [], filings: [], autoFire: null });
   const [showNotifs, setShowNotifs] = useState(false);
   const notifTotal = notifications.overdue.length + notifications.dueSoon.length
-    + notifications.lowStock.length + notifications.filings.length;
+    + notifications.lowStock.length + notifications.filings.length
+    + (notifications.autoFire?.count > 0 ? 1 : 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,7 +100,18 @@ function App() {
         });
         const lowStock = products.filter(p => (p.stock ?? 999) <= 5);
         const filings = getUpcomingFilings().filter(f => f.daysAway <= 10);
-        setNotifications({ overdue, dueSoon, lowStock, filings });
+        // Recurring auto-fire breadcrumb — set by server.js processDueRecurring().
+        // Only "fresh" (today's) auto-fires count as a notification; older ones
+        // would otherwise stay sticky forever.
+        let autoFire = null;
+        try {
+          const r = await fetch('/api/meta/lastRecurringAutoFire');
+          if (r.ok) {
+            const j = await r.json();
+            if (j.value && j.value.date === today && j.value.count > 0) autoFire = j.value;
+          }
+        } catch { /* fine */ }
+        setNotifications({ overdue, dueSoon, lowStock, filings, autoFire });
       } catch { /* offline / server down — leave previous counts */ }
     };
     compute();
@@ -623,6 +635,17 @@ function App() {
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {notifications.autoFire?.count > 0 && (
+                  <button type="button" className="notice notice-info" onClick={() => { setShowNotifs(false); setCurrentView('dashboard'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">🔁</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{notifications.autoFire.count} recurring invoice{notifications.autoFire.count !== 1 ? 's' : ''} auto-generated today</strong>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: '0.2rem' }}>
+                        Check the Dashboard for the new bills · review and download PDFs as needed
+                      </div>
+                    </div>
+                  </button>
+                )}
                 {notifications.overdue.length > 0 && (
                   <button type="button" className="notice notice-danger" onClick={() => { setShowNotifs(false); setCurrentView('dashboard'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
                     <span className="notice-icon">⚠</span>

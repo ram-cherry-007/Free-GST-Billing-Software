@@ -732,4 +732,160 @@ function gracefulShutdown(signal) {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
+// =====================================================
+// Recurring invoices — auto-fire on boot + daily interval
+// =====================================================
+// For every recurring template with `nextDate <= today` and `active === true`,
+// generate a new invoice (with a fresh sequential number for the matching
+// type prefix and today's date) and advance the template's `nextDate` by its
+// frequency. Honours `endMode` so weekly-for-12-weeks contracts stop themselves.
+//
+// Why server-side (and not in the React app): if the user opens the app on
+// the 5th but the template was due on the 1st, the missed-cycle invoice still
+// fires here. The frontend would only see it if the user happened to open the
+// app between firings — fragile.
+//
+// Why no Windows scheduled task (yet): the server starts on every Windows
+// login via the Startup-folder shortcut, so booting your PC = a check.
+// Long-uptime users get a daily `setInterval` below as a backstop.
+function advanceDate(dateStr, frequency, interval) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const n = Math.max(1, parseInt(interval, 10) || 1);
+  if (frequency === 'weekly') d.setDate(d.getDate() + 7 * n);
+  else if (frequency === 'quarterly') d.setMonth(d.getMonth() + 3 * n);
+  else if (frequency === 'yearly') d.setFullYear(d.getFullYear() + n);
+  else d.setMonth(d.getMonth() + n); // default: monthly
+  return d.toISOString().split('T')[0];
+}
+
+function nextInvoiceNumber(prefix, settings = {}) {
+  // Mirror the frontend's getNextInvoiceNumber logic — atomic counter via
+  // meta, applied to the same brandPrefix / separator / padding settings.
+  const key = `counter_${prefix}`;
+  const meta = readJSON(META_PATH, {});
+  const cfg = { format: 'branded', brandPrefix: '', separator: '/', showFinYear: true, padDigits: 4, ...(meta.invoiceNumberSettings || {}) };
+  const next = (Number(meta[key]) || 0) + 1;
+  meta[key] = next;
+  writeJSON(META_PATH, meta);
+  if (cfg.format === 'random') {
+    return `${cfg.brandPrefix || prefix}${cfg.separator}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+  }
+  const sep = cfg.separator || '/';
+  const pfx = cfg.brandPrefix || prefix;
+  const padded = String(next).padStart(cfg.padDigits || 4, '0');
+  if (cfg.showFinYear) {
+    const y = new Date().getFullYear();
+    return `${pfx}${sep}${y}-${String(y + 1).slice(-2)}${sep}${padded}`;
+  }
+  return `${pfx}${sep}${padded}`;
+  // Ignored other settings flags — they'd just produce slightly different
+  // formatting; matches frontend behaviour closely enough for the rare
+  // server-side firing.
+}
+
+function processDueRecurring() {
+  const today = new Date().toISOString().split('T')[0];
+  const templates = readAllFromDir('recurring');
+  let fired = 0;
+  for (const tpl of templates) {
+    if (!tpl || !tpl.active) continue;
+    if (!tpl.nextDate || tpl.nextDate > today) continue;
+    // End conditions
+    if (tpl.endMode === 'onDate' && tpl.endDate && today > tpl.endDate) continue;
+    if (tpl.endMode === 'afterN' && tpl.maxOccurrences && (tpl.occurrencesCreated || 0) >= tpl.maxOccurrences) continue;
+
+    try {
+      // Resolve a LIVE profile by id or businessName (mirrors v1.4.2
+      // company-name-auto-update behaviour for recurring fires).
+      const profiles = readAllFromDir('profiles');
+      let profile = profiles.find(p => p.id && tpl.profileId && p.id === tpl.profileId)
+                 || profiles.find(p => p.businessName === tpl.profileBusinessName)
+                 || readJSON(PROFILE_PATH, {});
+
+      const prefix = (tpl.invoiceType === 'proforma' ? 'EST'
+                   : tpl.invoiceType === 'credit-note' ? 'CN'
+                   : tpl.invoiceType === 'bill-of-supply' ? 'BOS'
+                   : tpl.invoiceType === 'composition' ? 'COMP'
+                   : tpl.invoiceType === 'delivery-challan' ? 'DC'
+                   : 'INV');
+      const invoiceNumber = nextInvoiceNumber(prefix);
+      const invoiceDate = today;
+
+      // Recompute totals quickly — match the frontend's calc shape closely.
+      let subtotal = 0, totalDiscount = 0, taxTotal = 0;
+      for (const item of (tpl.items || [])) {
+        const amount = (item.quantity || 0) * (item.rate || 0);
+        const discount = item.discount || 0;
+        const afterDiscount = Math.max(0, amount - discount);
+        subtotal += amount;
+        totalDiscount += discount;
+        taxTotal += (afterDiscount * (item.taxPercent || 0)) / 100;
+      }
+      const totalAmount = subtotal - totalDiscount + taxTotal;
+      const totals = { subtotal, totalDiscount, taxableAmount: subtotal - totalDiscount,
+        cgst: taxTotal / 2, sgst: taxTotal / 2, igst: 0, total: totalAmount, cess: 0, tcsAmount: 0, tdsAmount: 0, roundOff: 0,
+      };
+
+      const bill = {
+        id: invoiceNumber,
+        clientName: tpl.clientName,
+        invoiceNumber,
+        invoiceDate,
+        invoiceType: tpl.invoiceType || 'tax-invoice',
+        currency: (tpl.invoiceOptions && tpl.invoiceOptions.currency) || 'INR',
+        totalAmount,
+        totalTaxAmount: taxTotal,
+        status: 'unpaid',
+        paidAmount: 0,
+        payments: [],
+        generatedFrom: tpl.id,
+        autoGenerated: true,
+        autoGeneratedAt: new Date().toISOString(),
+        data: {
+          profile,
+          client: {
+            name: tpl.clientName, state: tpl.clientState, gstin: tpl.clientGstin,
+            address: tpl.clientAddress, country: tpl.clientCountry, city: tpl.clientCity,
+            pin: tpl.clientPin, email: tpl.clientEmail, phone: tpl.clientPhone,
+            isSEZ: tpl.isSEZ,
+          },
+          details: { invoiceNumber, invoiceDate, dueDate: '', placeOfSupply: '' },
+          items: tpl.items || [],
+          totals,
+          invoiceType: tpl.invoiceType || 'tax-invoice',
+          customTerms: tpl.customTerms || '',
+          customNotes: tpl.customNotes || '',
+          extraSections: tpl.extraSections || [],
+          invoiceOptions: tpl.invoiceOptions || {},
+          taxInclusive: !!tpl.taxInclusive,
+        },
+      };
+
+      writeJSON(path.join(DATA_DIR, 'bills', safeFileName(invoiceNumber) + '.json'), bill);
+
+      // Advance the template
+      tpl.nextDate = advanceDate(tpl.nextDate, tpl.frequency, tpl.interval);
+      tpl.lastGenerated = today;
+      tpl.occurrencesCreated = (tpl.occurrencesCreated || 0) + 1;
+      writeJSON(path.join(DATA_DIR, 'recurring', safeFileName(tpl.id) + '.json'), tpl);
+
+      fired += 1;
+    } catch (err) {
+      logFatal(err, 'recurring');
+    }
+  }
+  if (fired > 0) {
+    console.log(`  Auto-generated ${fired} recurring invoice${fired !== 1 ? 's' : ''}.`);
+    // Surface the count so the frontend notification centre can pick it up.
+    const meta = readJSON(META_PATH, {});
+    meta.lastRecurringAutoFire = { date: today, count: fired, at: new Date().toISOString() };
+    writeJSON(META_PATH, meta);
+  }
+}
+
 startServer(STARTING_PORT);
+// Fire once after a short delay so the listener is up first; then once a day
+// for users whose server stays up >24h.
+setTimeout(processDueRecurring, 3000);
+setInterval(processDueRecurring, 24 * 60 * 60 * 1000);

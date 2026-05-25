@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode } from '../store';
-import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById } from '../utils';
+import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring } from '../store';
+import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode } from '../utils';
 import { ensureToken, findOrCreateFolder, uploadPDF } from '../services/googleDrive';
 import DOMPurify from 'dompurify';
 import InvoicePreview from './InvoicePreview';
@@ -97,6 +97,8 @@ const DEFAULT_OPTIONS = {
   showDueDate: true,
   showItemQty: true,
   showRoundOff: false,
+  invoiceMode: 'goods',    // 'goods' | 'services' | 'mixed' — drives default unit + dropdown filter
+  recurring: null,         // null OR { enabled, frequency, interval, nextDate, endMode, endDate, maxOccurrences }
   showCess: false,         // when true, exposes per-line Cess % input (India-only)
   reverseCharge: false,    // when true, GST is paid by the recipient (Section 9(3)/9(4))
   showTDS: false,
@@ -593,8 +595,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   };
 
   const addItem = () => {
+    // Default unit depends on whether this invoice is for goods or services —
+    // freelancers and consultants get 'Hrs' by default, retailers/manufacturers
+    // get 'Nos'. The dropdown still shows the user's last-used unit if they've
+    // overridden a previous row.
+    const defaultUnit = items.length > 0 && items[items.length - 1].unit
+      ? items[items.length - 1].unit
+      : getDefaultUnitForMode(invoiceOptions.invoiceMode);
     setItems(prev => [...prev, {
-      id: Date.now().toString(), name: '', hsn: '', quantity: 1, unit: 'Nos', rate: 0, discount: 0,
+      id: Date.now().toString(), name: '', hsn: '', quantity: 1, unit: defaultUnit, rate: 0, discount: 0,
       taxPercent: showGST ? (countryTaxRates[countryTaxRates.length - 2] ?? 18) : 0,
       cessPercent: 0,
     }]);
@@ -709,6 +718,57 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       data: { profile, client, details, items, totals, invoiceType, customTerms, customNotes, internalNote, extraSections, invoiceOptions, taxInclusive }
     };
     await saveBill(bill);
+
+    // If the user ticked "Make this recurring", create/update the recurring
+    // template alongside the invoice. We store enough on the template to
+    // regenerate identical future invoices: client snapshot + items +
+    // invoice options. Server-side processDueRecurring uses these.
+    if (invoiceOptions.recurring?.enabled) {
+      try {
+        const rec = invoiceOptions.recurring;
+        const templateId = `tpl_${details.invoiceNumber}`; // stable: tied to source invoice number
+        await saveRecurring({
+          id: templateId,
+          sourceInvoiceId: details.invoiceNumber,
+          active: true,
+          frequency: rec.frequency || 'monthly',
+          interval: rec.interval || 1,
+          nextDate: rec.nextDate,
+          endMode: rec.endMode || 'never',
+          endDate: rec.endDate || '',
+          maxOccurrences: rec.maxOccurrences || null,
+          occurrencesCreated: 0,
+          createdAt: new Date().toISOString(),
+          lastGenerated: null,
+          // Snapshot the data needed to regenerate. Profile is resolved live at
+          // generation time (so business renames flow through), but client,
+          // items, invoiceType, customTerms, etc. are frozen as the user wants
+          // them on every recurring instance.
+          clientName: client.name,
+          clientState: client.state,
+          clientGstin: client.gstin,
+          clientAddress: client.address,
+          clientCountry: client.country,
+          clientCity: client.city,
+          clientPin: client.pin,
+          clientEmail: client.email,
+          clientPhone: client.phone,
+          isSEZ: client.isSEZ,
+          invoiceType,
+          profileId: profile?.id || null,
+          profileBusinessName: profile?.businessName || null,
+          items: items.map(i => ({ ...i })),
+          customTerms,
+          customNotes,
+          extraSections,
+          taxInclusive,
+          invoiceOptions: { ...invoiceOptions, recurring: null }, // strip the recurring config from clones
+        });
+      } catch (err) {
+        console.error('Failed to save recurring template:', err);
+        toast('Invoice saved, but recurring template failed to save', 'warning');
+      }
+    }
 
     // Auto-deduct stock only once for new invoices (not edits, not auto-saves)
     if (!skipStockDeduction && !stockDeducted.current) {
@@ -980,6 +1040,31 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
             </div>
             <p className="type-desc">{typeConfig?.description}</p>
 
+            {/* Goods / Services / Mixed selector — drives default line-item unit
+                (Hrs vs Nos) and filters the unit dropdown. Stays out of the way
+                for users who never touch services. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginRight: '0.25rem' }}>This invoice is for:</span>
+              {[
+                { id: 'goods',    label: '📦 Goods',    desc: 'Physical products — defaults to Nos / Kg / Pcs units' },
+                { id: 'services', label: '⏱ Services', desc: 'Time / work-based — defaults to Hrs and surfaces Session / Visit / Month units' },
+                { id: 'mixed',    label: '🔀 Mixed',   desc: 'Both — full unit list available, no filtering' },
+              ].map(opt => (
+                <button key={opt.id} type="button"
+                  className={`type-chip ${(invoiceOptions.invoiceMode || 'goods') === opt.id ? 'type-chip-active' : ''}`}
+                  onClick={() => setInvoiceOptions(prev => ({ ...prev, invoiceMode: opt.id }))}
+                  title={opt.desc}
+                  style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
+                  {opt.label}
+                </button>
+              ))}
+              {invoiceOptions.invoiceMode === 'services' && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                  💡 Use a <strong>SAC code</strong> (services accounting code) in the HSN field
+                </span>
+              )}
+            </div>
+
             {/* Customization Options */}
             {showOptions && (
               <div className="invoice-options">
@@ -1009,6 +1094,107 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Stored on this invoice — historical reports stay accurate even if rates change.</small>
                   </div>
                 )}
+
+                {/* Inline recurring — turn any invoice into a recurring template
+                    without leaving the form. On save, this writes both the
+                    invoice AND a recurring template the server auto-fires on
+                    schedule. Edit/cancel the template later via the Recurring
+                    Invoices view in the sidebar. */}
+                {(() => {
+                  const rec = invoiceOptions.recurring;
+                  const isOn = !!rec?.enabled;
+                  const toggle = () => {
+                    if (isOn) {
+                      setInvoiceOptions(prev => ({ ...prev, recurring: { ...prev.recurring, enabled: false } }));
+                    } else {
+                      const next = new Date(details.invoiceDate || new Date().toISOString());
+                      next.setMonth(next.getMonth() + 1);
+                      setInvoiceOptions(prev => ({
+                        ...prev,
+                        recurring: {
+                          enabled: true,
+                          frequency: 'monthly',
+                          interval: 1,
+                          nextDate: next.toISOString().split('T')[0],
+                          endMode: 'never',
+                          endDate: '',
+                          maxOccurrences: '',
+                        },
+                      }));
+                    }
+                  };
+                  const set = (key, val) => setInvoiceOptions(prev => ({
+                    ...prev, recurring: { ...prev.recurring, [key]: val },
+                  }));
+                  return (
+                    <div className={`form-group${isOn ? ' notice notice-info' : ''}`} style={{ marginBottom: '0.75rem', padding: '0.6rem', borderRadius: '6px', display: 'block' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={isOn} onChange={toggle}
+                          style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                        <strong>🔁 Make this a recurring invoice</strong>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          (auto-generate a new invoice on schedule, same items, new number)
+                        </span>
+                      </label>
+                      {isOn && (
+                        <div style={{ marginTop: '0.6rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label">Frequency</label>
+                            <select className="form-input" value={rec.frequency}
+                              onChange={e => set('frequency', e.target.value)}>
+                              <option value="weekly">Weekly</option>
+                              <option value="monthly">Monthly</option>
+                              <option value="quarterly">Quarterly</option>
+                              <option value="yearly">Yearly</option>
+                            </select>
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label">Every N (interval)</label>
+                            <input type="number" min="1" max="12" className="form-input"
+                              value={rec.interval || 1}
+                              onChange={e => set('interval', parseInt(e.target.value) || 1)} />
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label">Next invoice date</label>
+                            <input type="date" className="form-input" value={rec.nextDate || ''}
+                              onChange={e => set('nextDate', e.target.value)} />
+                          </div>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label">End condition</label>
+                            <select className="form-input" value={rec.endMode || 'never'}
+                              onChange={e => set('endMode', e.target.value)}>
+                              <option value="never">Never (until I stop it)</option>
+                              <option value="onDate">On a specific date</option>
+                              <option value="afterN">After N invoices</option>
+                            </select>
+                          </div>
+                          {rec.endMode === 'onDate' && (
+                            <div className="form-group" style={{ margin: 0, gridColumn: 'span 2' }}>
+                              <label className="form-label">Stop generating after this date</label>
+                              <input type="date" className="form-input" value={rec.endDate || ''}
+                                onChange={e => set('endDate', e.target.value)} />
+                            </div>
+                          )}
+                          {rec.endMode === 'afterN' && (
+                            <div className="form-group" style={{ margin: 0, gridColumn: 'span 2' }}>
+                              <label className="form-label">Stop after this many invoices have been generated</label>
+                              <input type="number" min="1" className="form-input"
+                                value={rec.maxOccurrences || ''}
+                                onChange={e => set('maxOccurrences', parseInt(e.target.value) || '')}
+                                placeholder="e.g. 12 for a 1-year monthly contract" />
+                            </div>
+                          )}
+                          <div style={{ gridColumn: 'span 2', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                            Auto-generation fires every time you open the app (or daily if it stays running).
+                            Future invoices get fresh sequential numbers, today's date as their invoice date,
+                            and the same client + items + amounts as this one. Edit or pause the template any
+                            time via <strong>Recurring</strong> in the sidebar.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* TCS — collected by seller, ADDS to total (Section 206C, Income Tax Act) */}
                 {(profile?.country || 'India') === 'India' && (
@@ -1429,13 +1615,24 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                       }
                       handleItemChange(item.id, 'unit', e.target.value);
                     }}>
-                    {/* If the saved unit isn't in the current list (e.g. removed custom), keep it visible. */}
-                    {item.unit && !units.some(u => u.label === item.unit) && (
-                      <option value={item.unit}>{item.unit}</option>
-                    )}
-                    {units.map(u => (
-                      <option key={u.label} value={u.label}>{u.label}{u.custom ? ' ★' : ''}</option>
-                    ))}
+                    {/* Filter units by invoice mode so a Services invoice doesn't drown
+                        the user in 'Kg / Ltr / Tonne / Bag', and Goods invoices don't
+                        show 'Word / Session / Visit'. Custom user-defined units always
+                        appear. The currently-selected unit always appears even if it
+                        wouldn't otherwise match the filter — so converting a goods
+                        invoice to services mid-edit doesn't blank the dropdown. */}
+                    {(() => {
+                      const visible = filterUnitsByMode(units, invoiceOptions.invoiceMode);
+                      const showCurrentExtra = item.unit && !visible.some(u => u.label === item.unit);
+                      return (
+                        <>
+                          {showCurrentExtra && <option value={item.unit}>{item.unit}</option>}
+                          {visible.map(u => (
+                            <option key={u.label} value={u.label}>{u.label}{u.custom ? ' ★' : ''}</option>
+                          ))}
+                        </>
+                      );
+                    })()}
                     <option value="__custom__">＋ Add custom…</option>
                     {units.some(u => u.custom) && units.filter(u => u.custom).map(u => (
                       <option key={`rm-${u.label}`} value={`__remove__::${u.label}`}>− Remove "{u.label}"</option>
