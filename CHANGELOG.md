@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.2] — 2026-04-30
+
+Fixes the StackBlitz / Codespaces sandbox demo path (and the local "Cannot
+GET /" head-scratcher that hit anyone who ran `node server.js` directly
+without building the frontend first).
+
+### Fixed — friendly "still building" page instead of `Cannot GET /`
+
+Before: if `dist/` didn't exist (StackBlitz boot, fresh clone, running
+`node server.js` directly, build still in progress), Express had no `/`
+route and returned the cryptic `Cannot GET /` 404. Users assumed the app
+was broken.
+
+Now: the SPA catch-all and static middleware are registered
+**unconditionally**. The catch-all checks per-request whether
+`dist/index.html` exists:
+
+- ✅ exists → serves the real React app
+- ⏳ doesn't exist → serves a friendly auto-refreshing placeholder
+  page that explains what's happening and how to fix it (run
+  `npm run build`, or wait for StackBlitz to finish)
+
+Critically, this means the server can start BEFORE `vite build` finishes
+and seamlessly flip to serving the real app the moment `dist/` appears —
+no restart required.
+
+### Added — `.stackblitzrc.json`
+
+Tells StackBlitz to run `npm start` (which is `vite build && node
+server.js`) on container boot, rather than guessing. Should fix the
+"Cannot GET /" experience the demo button was hitting in production.
+
+### No data changes
+
+Pure server behaviour change. No data migration, no UI change in the
+real app.
+
+---
+
 ## [1.6.1] — 2026-04-30
 
 PWA polish — making the existing Progressive Web App feel more like a

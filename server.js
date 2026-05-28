@@ -618,15 +618,58 @@ app.get('/api/check-update', async (req, res) => {
 // ========================
 // Serve production build
 // ========================
+// We register BOTH the static middleware and the SPA catch-all unconditionally.
+// The static middleware silently no-ops when dist/ doesn't exist; the catch-all
+// then checks per-request and serves either index.html (build ready) or the
+// friendly "still building" page (build not ready). This means the server can
+// start before `vite build` finishes — common in StackBlitz, Codespaces, or
+// when a user accidentally runs `node server.js` directly — and seamlessly
+// flips to serving the app the moment dist/ appears.
 const distPath = path.join(__dirname, 'dist');
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-  // Catch-all for SPA routing (Express 5 syntax)
-  app.get('{*path}', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(distPath, 'index.html'));
-    }
-  });
+const indexPath = path.join(distPath, 'index.html');
+app.use(express.static(distPath, { fallthrough: true })); // fallthrough = ok if dist doesn't exist
+
+app.get('{*path}', (req, res) => {
+  if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  // Build not ready yet — serve friendly waiting page (auto-refreshes every 3s).
+  return servePlaceholder(req, res);
+});
+
+function servePlaceholder(req, res) {
+    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
+    res.status(503).send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Free GST Billing Software — building…</title>
+<meta http-equiv="refresh" content="3">
+<style>
+  body { font-family: -apple-system, Segoe UI, Inter, sans-serif; max-width: 560px;
+         margin: 6rem auto; padding: 2rem; color: #1e293b; line-height: 1.55; }
+  h1 { color: #1e40af; margin: 0 0 0.5rem; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #cbd5e1;
+             border-top-color: #1e40af; border-radius: 50%; animation: spin 1s linear infinite;
+             vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .muted { color: #64748b; font-size: 0.9em; }
+  .box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.85rem 1rem; border-radius: 8px; margin-top: 1rem; }
+</style></head>
+<body>
+  <h1>Free GST Billing Software</h1>
+  <p><span class="spinner"></span> The app is still building. This page refreshes every 3 seconds.</p>
+  <div class="box">
+    <p style="margin:0 0 0.5rem"><strong>Local install?</strong></p>
+    <p style="margin:0">If you started the server but never built the frontend, run:</p>
+    <p style="margin:0.5rem 0 0"><code>npm run build</code></p>
+    <p class="muted" style="margin:0.5rem 0 0">…then reload this page.</p>
+  </div>
+  <div class="box">
+    <p style="margin:0 0 0.5rem"><strong>StackBlitz / Codespaces?</strong></p>
+    <p style="margin:0">First-time build takes ~30 seconds inside browser sandboxes. Sit tight.</p>
+  </div>
+  <p class="muted" style="margin-top:1.5rem">Server is running on port ${req.socket.localPort} · API health: <a href="/api/version">/api/version</a></p>
+</body></html>`);
 }
 
 // ============================================================
