@@ -16,9 +16,24 @@
 
 Your data never leaves your computer. No cloud. No signup. No tracking. No limits. Open-source and offline-first.
 
-[Download Now](https://github.com/IamRamgarhia/Free-GST-Billing-Software/archive/refs/heads/main.zip) &nbsp;|&nbsp; [Screenshots](#screenshots) &nbsp;|&nbsp; [5-Minute Quick Start](#your-first-invoice-in-5-minutes) &nbsp;|&nbsp; [Report Bug](https://github.com/IamRamgarhia/Free-GST-Billing-Software/issues) &nbsp;|&nbsp; [Request Feature](https://github.com/IamRamgarhia/Free-GST-Billing-Software/issues)
+[Download Now](https://github.com/IamRamgarhia/Free-GST-Billing-Software/archive/refs/heads/main.zip) &nbsp;|&nbsp; [Try in Browser](#-try-it-now-in-your-browser) &nbsp;|&nbsp; [Screenshots](#screenshots) &nbsp;|&nbsp; [5-Minute Quick Start](#your-first-invoice-in-5-minutes) &nbsp;|&nbsp; [Report Bug](https://github.com/IamRamgarhia/Free-GST-Billing-Software/issues) &nbsp;|&nbsp; [Request Feature](https://github.com/IamRamgarhia/Free-GST-Billing-Software/issues)
 
 </div>
+
+---
+
+## 🚀 Try it now in your browser
+
+Want to see what it looks like before downloading? Two zero-install options:
+
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/IamRamgarhia/Free-GST-Billing-Software)
+&nbsp;
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/IamRamgarhia/Free-GST-Billing-Software)
+
+- **StackBlitz** — full app runs in your browser via WebContainers (Node + Express + React all simulated in-page). ~30 seconds to boot. Your sandbox is private — nothing leaves your tab. Data resets when you close the tab.
+- **GitHub Codespaces** — cloud dev environment with the project pre-loaded. Click *Run* on `npm start` and the forwarded port opens the live app. Requires GitHub login. Free 60 hours/month per personal account.
+
+> ⚠️ **Both are demos.** For real day-to-day billing use the local install (Quick Start below). Your business data deserves to live on your own machine, not in a browser sandbox or a cloud VM. The whole point of this software is that.
 
 ---
 
@@ -38,6 +53,7 @@ Your data never leaves your computer. No cloud. No signup. No tracking. No limit
 
 ## 📑 Table of Contents
 
+- [Try it now in your browser](#-try-it-now-in-your-browser) — *zero-install demo*
 - [Why Choose Free GST Billing Software?](#why-choose-free-gst-billing-software)
 - [Your First Invoice in 5 Minutes](#your-first-invoice-in-5-minutes) — *start here if you're new*
 - [Key Features](#key-features)
