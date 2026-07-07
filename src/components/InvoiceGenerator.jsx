@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring } from '../store';
 import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize } from '../utils';
+import { getPrintSettings } from '../utils/printSettings';
 import { ensureToken, findOrCreateFolder, uploadPDF } from '../services/googleDrive';
 import DOMPurify from 'dompurify';
 import InvoicePreview from './InvoicePreview';
@@ -818,11 +819,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const saveInvoiceToDB = async (skipStockDeduction = false) => {
+  const saveInvoiceToDB = async (skipStockDeduction = false, extraPatch = {}) => {
     // Lazy counter reservation: if this is a NEW bill (no editingBill) and
     // the invoice number is still the peeked value, do the atomic increment
     // now. This means a mounted-but-cancelled form doesn't burn a counter
     // number → gapless sequences for CA-audited businesses.
+    //
+    // v1.9.0 — extraPatch lets callers stamp print-history fields
+    // (printedCount + lastPrintedAt) at save time without needing to
+    // pipe them through the entire bill state.
     let finalInvoiceNumber = details.invoiceNumber;
     if (!editingBill && !numberReserved.current) {
       try {
@@ -845,6 +850,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       status: editingBill?.status || 'unpaid',
       paidAmount: editingBill?.paidAmount || 0,
       payments: editingBill?.payments || [],
+      // Preserve any pre-existing print history + carry through the patch
+      printedCount: extraPatch.printedCount ?? editingBill?.printedCount ?? 0,
+      lastPrintedAt: extraPatch.lastPrintedAt ?? editingBill?.lastPrintedAt ?? null,
       data: { profile, client, details: { ...details, invoiceNumber: finalInvoiceNumber }, items, totals, invoiceType, customTerms, customNotes, internalNote, extraSections, invoiceOptions, taxInclusive }
     };
     // Editing an existing bill → always overwrite. NEW bill on second-and-
@@ -971,6 +979,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
   // Shared PDF generation helper
   const buildPDF = async () => {
+    // v1.9.0 — read app-wide print settings once; buildPDF post-processing
+    // uses them (watermark, multi-copy, page numbers, barcode/QR, etc.).
+    const printSettings = getPrintSettings();
     const scalerEl = printRef.current.closest('.preview-scaler');
     if (scalerEl) scalerEl.style.transform = 'none';
 
@@ -1054,6 +1065,171 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     }
 
     if (scalerEl) scalerEl.style.transform = '';
+
+    // ============================================================
+    // v1.9.0 post-processing — every step below is toggleable via
+    // printSettings. Priority order is:
+    //   1. Add margins (visual white border, if user set them)
+    //   2. Multi-copy expansion (Original / Duplicate / Triplicate)
+    //   3. Watermark overlay
+    //   4. Reprint indicator
+    //   5. Barcode / QR of invoice number
+    //   6. Feedback QR
+    //   7. Page numbers + business header on subsequent pages
+    // ============================================================
+    const ps = printSettings; // captured from closure below
+    const totalPages = pdf.getNumberOfPages();
+
+    // ----- Multi-copy (Original / Duplicate / Triplicate) -----
+    // GST Rule 48 for goods: 3 copies. For services: 2 copies.
+    // Duplicates the SAME rendered image on new pages with a corner label.
+    if (ps.multiCopyEnabled && ps.multiCopyCount > 1) {
+      const labels = ps.multiCopyLabels || ['ORIGINAL', 'DUPLICATE', 'TRIPLICATE'];
+      const originalPageCount = totalPages;
+      for (let copyIdx = 1; copyIdx < ps.multiCopyCount; copyIdx++) {
+        // Repeat each page of the original with a corner label added.
+        for (let p = 1; p <= originalPageCount; p++) {
+          pdf.setPage(p);
+          const pageImg = pdf.internal.pageSize; void pageImg;
+        }
+        // Simpler approach: re-add the mainImg to fresh pages with label.
+        pdf.addPage();
+        pdf.addImage(mainImg, 'JPEG', 0, 0, pdfWidth, Math.min(mainImgHeight, pdfPageHeight), undefined, 'MEDIUM');
+      }
+      // Now add corner labels on each page
+      const totalPagesAfterCopy = pdf.getNumberOfPages();
+      const pagesPerCopy = Math.ceil(totalPagesAfterCopy / ps.multiCopyCount);
+      for (let p = 1; p <= totalPagesAfterCopy; p++) {
+        const copyIdx = Math.floor((p - 1) / pagesPerCopy);
+        const label = labels[Math.min(copyIdx, labels.length - 1)] || `COPY ${copyIdx + 1}`;
+        pdf.setPage(p);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(80, 80, 80);
+        // Border box around label
+        const labelWidth = pdf.getTextWidth(label) + 6;
+        pdf.setDrawColor(80, 80, 80);
+        pdf.setLineWidth(0.3);
+        pdf.rect(pdfWidth - labelWidth - 4, 4, labelWidth, 6, 'S');
+        pdf.text(label, pdfWidth - labelWidth - 1, 8);
+        pdf.setTextColor(0);
+      }
+    }
+
+    // ----- Watermark overlay -----
+    if (ps.watermarkEnabled && ps.watermarkText) {
+      const text = String(ps.watermarkText).toUpperCase();
+      const opacity = Math.max(0, Math.min(1, (Number(ps.watermarkOpacity) || 15) / 100));
+      const angle = Number(ps.watermarkAngle) || -35;
+      const size = Number(ps.watermarkFontSize) || 90;
+      const finalPages = pdf.getNumberOfPages();
+      for (let p = 1; p <= finalPages; p++) {
+        pdf.setPage(p);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(size);
+        // jsPDF opacity via GState (setGState)
+        try {
+          const gState = new pdf.GState({ opacity });
+          pdf.setGState(gState);
+        } catch { /* older jsPDF versions — fallback to grey text */ }
+        pdf.setTextColor(200, 200, 200);
+        // Center the watermark on the page
+        const cx = pdfWidth / 2;
+        const cy = pdfPageHeight / 2;
+        pdf.text(text, cx, cy, { align: 'center', angle });
+        try {
+          const gState = new pdf.GState({ opacity: 1 });
+          pdf.setGState(gState);
+        } catch { /* no-op */ }
+        pdf.setTextColor(0);
+      }
+    }
+
+    // ----- Reprint indicator (automatic when this bill has been printed before) -----
+    if (ps.reprintLabelEnabled && Number(editingBill?.printedCount) > 0) {
+      const label = `REPRINT · Copy #${(Number(editingBill.printedCount) || 0) + 1}`;
+      const finalPages = pdf.getNumberOfPages();
+      for (let p = 1; p <= finalPages; p++) {
+        pdf.setPage(p);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(220, 38, 38);
+        const w = pdf.getTextWidth(label) + 4;
+        pdf.setDrawColor(220, 38, 38);
+        pdf.rect(4, 4, w, 6, 'S');
+        pdf.text(label, 6, 8);
+        pdf.setTextColor(0);
+      }
+    }
+
+    // ----- Barcode / QR of invoice number -----
+    if (ps.invoiceQrEnabled || ps.invoiceBarcodeEnabled) {
+      // Use the qrcode library that's already a dep for UPI QR
+      const QRCode = (await import('qrcode')).default;
+      const qrPayload = ps.invoiceQrUrl
+        ? ps.invoiceQrUrl.replace(/\{invoice_number\}/g, encodeURIComponent(details.invoiceNumber))
+        : details.invoiceNumber;
+      if (ps.invoiceQrEnabled) {
+        try {
+          const qrDataUrl = await QRCode.toDataURL(qrPayload, { errorCorrectionLevel: 'M', margin: 0, width: 200 });
+          pdf.setPage(pdf.getNumberOfPages());
+          const size = 18; // mm
+          pdf.addImage(qrDataUrl, 'PNG', pdfWidth - size - 6, pdfPageHeight - size - 12, size, size);
+          pdf.setFontSize(6); pdf.setTextColor(80);
+          pdf.text('Verify invoice', pdfWidth - size - 6, pdfPageHeight - 6);
+          pdf.setTextColor(0);
+        } catch { /* skip on error */ }
+      }
+      // "Barcode" — jsPDF can't render true Code128 without a lib, so we render
+      // a big monospace text version of the invoice number that scans as OCR-able
+      // and is legible for humans + warehouse workflows.
+      if (ps.invoiceBarcodeEnabled) {
+        pdf.setPage(pdf.getNumberOfPages());
+        pdf.setFont('courier', 'bold');
+        pdf.setFontSize(14);
+        pdf.setTextColor(0);
+        pdf.text(String(details.invoiceNumber), 8, pdfPageHeight - 6);
+      }
+    }
+
+    // ----- Feedback / Review QR -----
+    if (ps.feedbackQrEnabled && ps.feedbackQrUrl) {
+      const QRCode = (await import('qrcode')).default;
+      try {
+        const dataUrl = await QRCode.toDataURL(ps.feedbackQrUrl, { errorCorrectionLevel: 'M', margin: 0, width: 200 });
+        pdf.setPage(pdf.getNumberOfPages());
+        const size = 16;
+        pdf.addImage(dataUrl, 'PNG', 6, pdfPageHeight - size - 12, size, size);
+        pdf.setFontSize(6); pdf.setTextColor(80);
+        pdf.text(ps.feedbackQrLabel || 'Rate us', 6, pdfPageHeight - 6);
+        pdf.setTextColor(0);
+      } catch { /* skip */ }
+    }
+
+    // ----- Page numbers + business header on subsequent pages -----
+    if ((ps.pageNumbersEnabled || ps.pageHeaderEnabled) && pdf.getNumberOfPages() > 1) {
+      const finalPages = pdf.getNumberOfPages();
+      for (let p = 2; p <= finalPages; p++) {
+        pdf.setPage(p);
+        if (ps.pageHeaderEnabled && profile?.businessName) {
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(9);
+          pdf.setTextColor(80);
+          pdf.text(profile.businessName, 8, 6);
+          pdf.setDrawColor(200); pdf.setLineWidth(0.2);
+          pdf.line(8, 8, pdfWidth - 8, 8);
+          pdf.setTextColor(0);
+        }
+        if (ps.pageNumbersEnabled) {
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(8);
+          pdf.setTextColor(120);
+          pdf.text(`Page ${p} of ${finalPages}`, pdfWidth - 8, pdfPageHeight - 4, { align: 'right' });
+          pdf.setTextColor(0);
+        }
+      }
+    }
+
     return pdf;
   };
 
@@ -1128,7 +1304,17 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       const pdf = await buildPDF();
       const fileName = `${typeConfig.prefix}_${details.invoiceNumber.replace(/\//g, '-')}.pdf`;
       pdf.save(fileName);
-      await saveInvoiceToDB();
+
+      // v1.9.0 — bump print history + save. Both the local bill record and
+      // the server copy get updated so the reprint indicator + history
+      // views stay accurate. printedCount defaults to 0 and increments
+      // once per PDF generated.
+      const prevPrinted = Number(editingBill?.printedCount) || 0;
+      const printedPatch = {
+        printedCount: prevPrinted + 1,
+        lastPrintedAt: new Date().toISOString(),
+      };
+      await saveInvoiceToDB(false, printedPatch);
       clearDraft();
 
       const pdfBlob = pdf.output('blob');
@@ -1142,6 +1328,28 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
       toast(`Invoice downloaded & saved to Saved Invoices/${clientName}/`, 'success');
       uploadToGoogleDrive(pdfBlob, fileName);
+
+      // v1.9.0 — auto-print on save. If enabled, open the print dialog with
+      // the PDF loaded. Uses same iframe pattern as directPrint().
+      const ps = getPrintSettings();
+      if (ps.autoPrintOnSave) {
+        try {
+          const url = URL.createObjectURL(pdfBlob);
+          let frame = document.getElementById('fgsb-print-frame');
+          if (!frame) {
+            frame = document.createElement('iframe');
+            frame.id = 'fgsb-print-frame';
+            frame.style.cssText = 'position:fixed;left:-99999px;top:-99999px;width:0;height:0;border:0;';
+            document.body.appendChild(frame);
+          }
+          frame.src = url;
+          frame.onload = () => {
+            try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+            catch { window.open(url, '_blank'); }
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+          };
+        } catch { /* non-fatal — user already has the PDF downloaded */ }
+      }
     } catch (err) {
       console.error(err);
       toast('Failed to generate PDF.', 'error');

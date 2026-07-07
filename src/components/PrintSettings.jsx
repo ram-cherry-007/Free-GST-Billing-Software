@@ -223,6 +223,164 @@ export default function PrintSettings() {
         </SettingGroup>
       </div>
 
+      {/* ============================================================ */}
+      {/* PDF & UNIVERSAL PRINT FEATURES (v1.9.0) */}
+      {/* ============================================================ */}
+      <div style={{ marginTop: '1.75rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          📄 PDF & universal print features
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 1rem' }}>
+          Applies to A4 / A5 / Letter / Legal / thermal — every option here is dynamic (turn on / off any time).
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+
+          {/* AUTO-PRINT */}
+          <SettingGroup title="Auto-print">
+            <ToggleRow label="Auto-print on save" value={settings.autoPrintOnSave} onChange={v => set({ autoPrintOnSave: v })}
+              hint="Send to your default printer immediately after Save & Download PDF. Perfect for POS counters — no manual click needed." />
+          </SettingGroup>
+
+          {/* WATERMARK */}
+          <SettingGroup title="Watermark">
+            <ToggleRow label="Show watermark" value={settings.watermarkEnabled} onChange={v => set({ watermarkEnabled: v })}
+              hint="Big diagonal stamp across the PDF (e.g. PAID / DUPLICATE / DRAFT)." />
+            {settings.watermarkEnabled && (
+              <>
+                <SelectRow label="Watermark text" value={settings.watermarkText} onChange={v => set({ watermarkText: v })}
+                  options={[
+                    ['PAID', 'PAID'], ['DUPLICATE', 'DUPLICATE'], ['DRAFT', 'DRAFT'],
+                    ['OVERDUE', 'OVERDUE'], ['COPY', 'COPY'], ['ORIGINAL', 'ORIGINAL'],
+                    ['CANCELLED', 'CANCELLED'], ['REPRINT', 'REPRINT'],
+                  ]} />
+                <SelectRow label="Opacity" value={String(settings.watermarkOpacity)} onChange={v => set({ watermarkOpacity: parseInt(v, 10) })}
+                  options={[['5', 'Very faint (5%)'], ['10', 'Faint (10%)'], ['15', 'Medium (15%)'], ['25', 'Strong (25%)'], ['40', 'Very strong (40%)']]} />
+              </>
+            )}
+          </SettingGroup>
+
+          {/* MULTI-COPY */}
+          <SettingGroup title="Multi-copy (GST rule 48)">
+            <ToggleRow label="Print multiple copies with labels" value={settings.multiCopyEnabled} onChange={v => set({ multiCopyEnabled: v })}
+              hint="Prints your invoice N times with corner labels (ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER / etc.). GST rule 48 requires 3 copies for goods, 2 for services." />
+            {settings.multiCopyEnabled && (
+              <SelectRow label="Number of copies" value={String(settings.multiCopyCount)} onChange={v => set({ multiCopyCount: parseInt(v, 10) })}
+                options={[['2', '2 (Original + Duplicate — services)'], ['3', '3 (Original + Duplicate + Triplicate — goods)']]} />
+            )}
+          </SettingGroup>
+
+          {/* PAGE NUMBERS + HEADER */}
+          <SettingGroup title="Multi-page invoices">
+            <ToggleRow label="Page numbers on every page" value={settings.pageNumbersEnabled} onChange={v => set({ pageNumbersEnabled: v })}
+              hint='Shows "Page 2 of 5" bottom-right on pages 2+.' />
+            <ToggleRow label="Business name header on pages 2+" value={settings.pageHeaderEnabled} onChange={v => set({ pageHeaderEnabled: v })}
+              hint="Repeats your business name at the top so multi-page invoices look professional." />
+          </SettingGroup>
+
+          {/* MARGINS */}
+          <SettingGroup title="Print margins (mm)">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+              <NumInput label="Top" value={settings.marginTop} onChange={v => set({ marginTop: v })} />
+              <NumInput label="Bottom" value={settings.marginBottom} onChange={v => set({ marginBottom: v })} />
+              <NumInput label="Left" value={settings.marginLeft} onChange={v => set({ marginLeft: v })} />
+              <NumInput label="Right" value={settings.marginRight} onChange={v => set({ marginRight: v })} />
+            </div>
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '3px 0 0' }}>
+              For users printing on pre-printed letterhead — shift content down to avoid your logo, or in from the edge to fit binding.
+            </p>
+          </SettingGroup>
+
+          {/* BARCODE + QR */}
+          <SettingGroup title="Verification codes">
+            <ToggleRow label="Invoice number as QR" value={settings.invoiceQrEnabled} onChange={v => set({ invoiceQrEnabled: v })}
+              hint="Prints a QR of the invoice number (or verification URL if set below) in the bottom-right corner." />
+            {settings.invoiceQrEnabled && (
+              <TextRow label="Verification URL (optional)" value={settings.invoiceQrUrl} onChange={v => set({ invoiceQrUrl: v })}
+                placeholder="https://mycompany.com/verify/{invoice_number}"
+                hint="{invoice_number} gets replaced with the actual invoice #. Leave blank to encode just the number." />
+            )}
+            <ToggleRow label="Invoice number as barcode text" value={settings.invoiceBarcodeEnabled} onChange={v => set({ invoiceBarcodeEnabled: v })}
+              hint="Prints the invoice number in large monospace at the bottom-left for warehouse scanning / filing." />
+          </SettingGroup>
+
+          {/* FEEDBACK QR */}
+          <SettingGroup title="Customer feedback QR">
+            <ToggleRow label="Feedback / review QR" value={settings.feedbackQrEnabled} onChange={v => set({ feedbackQrEnabled: v })}
+              hint="Adds a QR at the bottom-left of the PDF that opens a URL — Google Reviews, feedback form, WhatsApp chat, anything you want." />
+            {settings.feedbackQrEnabled && (
+              <>
+                <TextRow label="URL to encode" value={settings.feedbackQrUrl} onChange={v => set({ feedbackQrUrl: v })}
+                  placeholder="e.g. https://g.page/r/YOUR_ID/review" />
+                <TextRow label="Label above QR" value={settings.feedbackQrLabel} onChange={v => set({ feedbackQrLabel: v })}
+                  placeholder="Rate us · Give feedback" />
+              </>
+            )}
+          </SettingGroup>
+
+          {/* DIGITAL SIGNATURE */}
+          <SettingGroup title="Digital signature">
+            <ToggleRow label="Show signature on invoice" value={settings.signatureShow} onChange={v => set({ signatureShow: v })} />
+            {settings.signatureShow && (
+              <>
+                {settings.signatureImage ? (
+                  <>
+                    <div style={{ padding: '0.5rem', background: '#fff', borderRadius: 4, textAlign: 'center', marginBottom: '0.4rem' }}>
+                      <img src={settings.signatureImage} alt="signature" style={{ maxHeight: 60, maxWidth: '100%' }} />
+                    </div>
+                    <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                      onClick={() => set({ signatureImage: '' })}>
+                      Remove signature
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <label style={{ fontSize: '0.78rem', display: 'block', marginBottom: 3 }}>Upload signature (PNG / JPG)</label>
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 2 * 1024 * 1024) { toast('Image too large (max 2MB)', 'warning'); return; }
+                        const reader = new FileReader();
+                        reader.onload = (ev) => set({ signatureImage: ev.target.result });
+                        reader.readAsDataURL(file);
+                      }}
+                      style={{ fontSize: '0.78rem' }} />
+                  </>
+                )}
+                <TextRow label="Signatory name" value={settings.signatureName} onChange={v => set({ signatureName: v })}
+                  placeholder="e.g. Rakesh Kumar · Director"
+                  hint="Falls back to business name if left blank." />
+              </>
+            )}
+          </SettingGroup>
+
+          {/* T&C SEPARATE PAGE */}
+          <SettingGroup title="Terms &amp; Conditions">
+            <ToggleRow label="Print T&amp;C on a separate page" value={settings.termsSeparatePage} onChange={v => set({ termsSeparatePage: v })}
+              hint="For long terms — puts them on page 2 instead of squishing on page 1. Only affects invoices with T&amp;C enabled." />
+          </SettingGroup>
+
+          {/* FONT FAMILY (PDF) */}
+          <SettingGroup title="PDF font family">
+            <SelectRow label="Font used in generated PDFs" value={settings.pdfFontFamily} onChange={v => set({ pdfFontFamily: v })}
+              options={[
+                ['helvetica', 'Helvetica (default, cleanest)'],
+                ['times', 'Times New Roman (traditional / formal)'],
+                ['courier', 'Courier (monospace / retro / receipt style)'],
+              ]}
+              hint="Applies to the letterhead, table, and totals. Affects sheet formats (A4/A5/Letter/Legal); thermal has its own font setting above." />
+          </SettingGroup>
+
+          {/* REPRINT INDICATOR */}
+          <SettingGroup title="Reprint tracking">
+            <ToggleRow label="Show REPRINT badge on reprints" value={settings.reprintLabelEnabled} onChange={v => set({ reprintLabelEnabled: v })}
+              hint="Automatic red badge in the top-left of the PDF when an invoice has been printed before. Tracks how many times each bill was printed." />
+          </SettingGroup>
+
+        </div>
+      </div>
+
       {/* LIVE PREVIEW */}
       <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -293,6 +451,18 @@ function SelectRow({ label, value, onChange, options, hint }) {
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
       {hint && <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{hint}</p>}
+    </div>
+  );
+}
+
+function NumInput({ label, value, onChange, min = 0, max = 100 }) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: 2 }}>{label}</label>
+      <input type="number" min={min} max={max} step="0.5"
+        value={value ?? 0}
+        onChange={e => onChange(parseFloat(e.target.value) || 0)}
+        className="form-input" style={{ fontSize: '0.8rem', padding: '0.3rem 0.4rem', width: '100%' }} />
     </div>
   );
 }

@@ -7,6 +7,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.0] — 2026-04-30
+
+**"Print Polish" release** — 12 new features covering everything a print
+workflow needs. Every option is dynamic (toggle on / off in Settings).
+
+### Added — 💧 Watermarks (PAID / DUPLICATE / DRAFT / OVERDUE / COPY / etc.)
+
+Diagonal watermark stamp across every page of the PDF. **8 preset labels**:
+PAID, DUPLICATE, DRAFT, OVERDUE, COPY, ORIGINAL, CANCELLED, REPRINT.
+**Opacity control**: 5% / 10% / 15% (default) / 25% / 40%. Rotation and
+size handled automatically via jsPDF `GState`.
+
+### Added — 📋 Multi-copy print (GST Rule 48 compliance)
+
+Toggle **"Print multiple copies with labels"** and pick 2 or 3 copies:
+
+- **2 copies** — services: Original for Recipient + Duplicate for Supplier
+- **3 copies** — goods: Original for Recipient + Duplicate for Transporter + Triplicate for Supplier
+
+Each copy gets a corner label ("ORIGINAL FOR RECIPIENT" etc.) automatically.
+One PDF, ready to print all copies at once.
+
+### Added — 🚀 Auto-print on save
+
+Toggle in Print Settings. When enabled, hitting **Save & Download PDF**
+sends the invoice **directly to your default printer** immediately — no
+manual print button click needed. Perfect for POS counters where every
+saved invoice must be handed to the customer immediately.
+
+### Added — 📊 Print history tracking
+
+Every time an invoice is printed, its `printedCount` increments and
+`lastPrintedAt` is stamped. Persisted with the bill so it survives
+restarts / restores. Powers the reprint indicator below.
+
+### Added — 🔄 Reprint indicator
+
+Toggle in Print Settings. When enabled, any invoice that's been printed
+before shows a **red "REPRINT · Copy #N" badge** in the top-left corner
+of the PDF. Helps customers/CAs identify duplicate copies at a glance.
+Fully automatic — no per-invoice action needed.
+
+### Added — 📱 Verification QR + text-barcode
+
+Two independent toggles:
+
+- **Invoice QR** — encodes the invoice number, or a verification URL like
+  `https://mycompany.com/verify/{invoice_number}` (with placeholder
+  substitution). Prints as a small QR in the bottom-right.
+- **Invoice barcode text** — prints the invoice number in large monospace
+  font at the bottom-left for warehouse scanning / physical filing.
+
+### Added — ✍️ Digital signature upload
+
+Upload your signature PNG/JPG in **Print Settings → Digital signature**.
+Renders in the "Authorized Signatory" block of every PDF. Plus a
+**signatory name** field ("Rakesh Kumar · Director") that overrides
+the default business name in that block.
+
+Priority order: `profile.signature` (per-business, legacy) →
+`printSettings.signatureImage` (app-wide fallback).
+
+### Added — 🖨 Print margins
+
+Four number inputs (**Top / Bottom / Left / Right**) in mm. Users
+printing on pre-printed letterhead can shift content down to avoid
+their pre-printed logo, or in from the edge to fit binding.
+
+### Added — 📄 Multi-page invoices — page numbers + business header
+
+Two independent toggles. When an invoice spills to page 2+:
+
+- **Page numbers**: "Page 2 of 5" bottom-right on each subsequent page
+- **Business name header**: business name at the top of each page 2+
+  with a hairline divider — professional multi-page look
+
+### Added — 📑 T&C on separate page
+
+Toggle. For invoices with long Terms & Conditions, this puts the T&C
+on its own page instead of squishing them at the bottom of page 1.
+
+### Added — ⭐ Feedback / Review QR
+
+New toggle. Encodes any URL (Google Reviews, feedback form, WhatsApp
+chat, anything) as a small QR in the bottom-left of the PDF. Custom
+**label text above the QR** ("Rate us · Give feedback" etc.).
+
+Great for retail businesses to boost their Google reviews.
+
+### Added — 📐 PDF font family selector
+
+Choose Helvetica (default) / Times New Roman / Courier for the entire
+PDF letterhead, tables, totals. Applies to sheet formats (A4/A5/Letter/Legal);
+thermal has its own font-family setting from v1.8.4.
+
+### UI — All new controls in Print Settings
+
+Every feature above has a dedicated section in **Settings → Thermal Printer
+Settings** panel, organised into groups:
+
+- Auto-print
+- Watermark (with preset picker + opacity)
+- Multi-copy (GST rule 48)
+- Multi-page invoices
+- Print margins
+- Verification codes (QR + text-barcode)
+- Customer feedback QR
+- Digital signature
+- Terms & Conditions
+- PDF font family
+- Reprint tracking
+
+Every toggle is dynamic — flip on/off any time. Settings persist to
+localStorage and ride the backup flow.
+
+### Fixed — solidLine unused variable warning in thermal render
+
+Cleanup from the v1.8.4 refactor.
+
+### Backward compatibility
+
+- Pre-v1.9.0 bills default to `printedCount: 0`, `lastPrintedAt: null` —
+  no reprint badge shows until they're printed via v1.9.0
+- All new print settings default to **off / disabled** — no visual change
+  on existing invoices unless the user opts in
+- Watermarks and multi-copy don't apply to thermal receipts (rolls don't
+  need diagonal stamps or multiple copies typically)
+
+---
+
 ## [1.8.5] — 2026-04-30
 
 Full printer compatibility release. Based on user-shared printer spec

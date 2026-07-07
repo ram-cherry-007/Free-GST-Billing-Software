@@ -5,23 +5,24 @@
 // ============================================================================
 
 export const DEFAULT_PRINT_SETTINGS = {
+  // ==== Thermal-only ====
   // Typography
   fontFamily: 'mono',    // 'mono' | 'sans'
   fontSize: 'medium',    // 'small' | 'medium' | 'large' | 'xlarge'
   fontWeight: 'bold',    // 'normal' | 'bold' | 'ultra'
-  allCaps: false,        // uppercase every text element (SMART BAZAAR style)
+  allCaps: false,
 
   // Layout
   lineSpacing: 'normal', // 'compact' | 'normal' | 'comfortable'
   headerAlign: 'center', // 'left' | 'center'
-  contrast: 'normal',    // 'normal' | 'high' | 'ultra' — image filter
+  contrast: 'normal',    // 'normal' | 'high' | 'ultra'
 
   // Content
   showHSN: true,
   showRateLine: true,
   showAmountWords: true,
   showUPI: true,
-  qrSize: 'medium',      // 'small' | 'medium' | 'large'
+  qrSize: 'medium',
   showLogo: true,
   showBankDetails: true,
 
@@ -34,6 +35,61 @@ export const DEFAULT_PRINT_SETTINGS = {
   headerCaps: true,
   showTagline: false,
   tagline: '',
+
+  // ============================================================
+  // ==== v1.9.0 PDF & universal print features ==================
+  // ============================================================
+  // Every one below is TOGGLEABLE. Users pick which they want.
+
+  // -- Auto-print --
+  autoPrintOnSave: false,   // send to default printer immediately after Save & PDF Download
+
+  // -- Watermark --
+  watermarkEnabled: false,
+  watermarkText: 'DUPLICATE', // 'PAID' | 'DUPLICATE' | 'DRAFT' | 'OVERDUE' | 'COPY' | (custom text)
+  watermarkOpacity: 15,       // 0-100 (percent)
+  watermarkAngle: -35,        // degrees; -35 is the diagonal classic
+  watermarkFontSize: 90,      // pt
+
+  // -- Multi-copy print (GST rule 48) --
+  multiCopyEnabled: false,
+  multiCopyCount: 3,          // 1|2|3 — Original / Duplicate / Triplicate
+  multiCopyLabels: ['ORIGINAL FOR RECIPIENT', 'DUPLICATE FOR TRANSPORTER', 'TRIPLICATE FOR SUPPLIER'],
+
+  // -- Page numbers + header on subsequent pages --
+  pageNumbersEnabled: true,
+  pageHeaderEnabled: true,    // shows business name at top of pages 2+
+
+  // -- Print margins (mm) --
+  marginTop: 0,      // 0 = no margin (existing behaviour). Users on printers with
+  marginBottom: 0,   // built-in margins can dial these UP; letterhead users set them
+  marginLeft: 0,     // to shift content away from pre-printed logo.
+  marginRight: 0,
+
+  // -- Font family (sheet PDFs) --
+  pdfFontFamily: 'helvetica',  // 'helvetica' | 'times' | 'courier'
+
+  // -- Barcode / QR of invoice number --
+  invoiceBarcodeEnabled: false,   // barcode of invoice # (Code128-style, printed via jsPDF text)
+  invoiceQrEnabled: false,        // QR of invoice # (or verify URL if configured)
+  invoiceQrUrl: '',               // e.g. https://mycompany.com/verify/{invoice_number}
+
+  // -- Digital signature --
+  signatureImage: '',        // base64 data URL (uploaded in Print Settings)
+  signatureName: '',         // "Authorized Signatory Name"
+  signatureShow: true,       // show on invoice? (defaults to on)
+
+  // -- T&C on separate page --
+  termsSeparatePage: false,  // put terms + notes on their own page 2
+
+  // -- Feedback / Review QR --
+  feedbackQrEnabled: false,
+  feedbackQrUrl: '',         // Google Reviews / feedback form / any URL
+  feedbackQrLabel: 'Rate us · Give feedback',
+
+  // -- Reprint indicator (automatic) --
+  reprintLabelEnabled: true, // when true, a "REPRINT · Copy #N" badge appears on any invoice
+                             // whose printedCount > 0 (based on bill.printedCount field)
 };
 
 export function getPrintSettings() {

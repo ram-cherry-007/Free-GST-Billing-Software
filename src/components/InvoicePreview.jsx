@@ -380,7 +380,6 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     const cap = (s) => allCaps ? String(s || '').toUpperCase() : String(s || '');
     // Consistent divider styling (dashed lines don't print well; solid does)
     const dashLine = { borderBottom: '1px solid #000', borderTop: 'none' };
-    const solidLine = { borderBottom: '2px solid #000' };
     // Root style — EVERY visual attribute set here so nothing accidentally
     // inherits lighter/gray from parent CSS.
     //
@@ -918,16 +917,25 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
             ) : null;
           })()}
         </div>
-        {showSignature && profile?.signature && (
-          <div className="inv-signature">
-            {showSignatoryText && <p className="inv-sig-label">Authorized Signatory</p>}
-            <img src={profile.signature} alt="Signature" style={{
-              maxHeight: '60px', maxWidth: '180px', objectFit: 'contain',
-              display: 'block', marginLeft: 'auto', marginBottom: '0.4rem'
-            }} />
-            <p className="inv-sig-name">{profile?.businessName}</p>
-          </div>
-        )}
+        {(() => {
+          // v1.9.0: signature source priority — profile.signature (per-business,
+          // legacy), then printSettings.signatureImage (app-wide default set
+          // via Print Settings). Same for the signatory name.
+          const printCfg = getPrintSettings();
+          const sigImg = profile?.signature || (printCfg.signatureShow !== false ? printCfg.signatureImage : null);
+          const sigName = profile?.businessName || printCfg.signatureName;
+          if (!showSignature || !sigImg) return null;
+          return (
+            <div className="inv-signature">
+              {showSignatoryText && <p className="inv-sig-label">Authorized Signatory</p>}
+              <img src={sigImg} alt="Signature" style={{
+                maxHeight: '60px', maxWidth: '180px', objectFit: 'contain',
+                display: 'block', marginLeft: 'auto', marginBottom: '0.4rem'
+              }} />
+              <p className="inv-sig-name">{sigName}</p>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Extra Sections - each starts on new page */}
