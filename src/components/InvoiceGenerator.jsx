@@ -1152,8 +1152,12 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     }
 
     // ----- Watermark overlay -----
-    if (ps.watermarkEnabled && ps.watermarkText) {
-      const text = String(ps.watermarkText).toUpperCase();
+    if (ps.watermarkEnabled && (ps.watermarkText || (ps.watermarkUseCustomText && ps.watermarkCustomText))) {
+      // v1.9.3 — custom text option overrides the preset picker
+      const rawText = ps.watermarkUseCustomText && ps.watermarkCustomText
+        ? ps.watermarkCustomText
+        : ps.watermarkText;
+      const text = String(rawText).toUpperCase();
       const opacity = Math.max(0, Math.min(1, (Number(ps.watermarkOpacity) || 15) / 100));
       const angle = Number(ps.watermarkAngle) || -35;
       const size = Number(ps.watermarkFontSize) || 90;

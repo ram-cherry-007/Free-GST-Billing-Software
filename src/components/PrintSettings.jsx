@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Printer, TestTube, RotateCcw, Info } from 'lucide-react';
+import { Printer, TestTube, RotateCcw, Info, Search, Save as SaveIcon, Trash2 } from 'lucide-react';
 import { toast } from './Toast';
 import InvoicePreview from './InvoicePreview';
 import { getProfile } from '../store';
-import { DEFAULT_PRINT_SETTINGS, getPrintSettings, savePrintSettings, buildSampleInvoice } from '../utils/printSettings';
+import { DEFAULT_PRINT_SETTINGS, getPrintSettings, savePrintSettings, buildSampleInvoice, BUSINESS_PRESETS, applyBusinessPreset, LABEL_PRESETS } from '../utils/printSettings';
 
 // ============================================================================
 // Print Settings — app-wide defaults for the thermal printer render.
@@ -118,13 +118,22 @@ export default function PrintSettings() {
         <div>
           <h3 className="section-title" style={{ marginTop: 0, marginBottom: '0.25rem' }}>
             <Printer size={18} style={{ display: 'inline', verticalAlign: -3, marginRight: 6 }} />
-            Thermal Printer Settings
+            Print & PDF Settings
           </h3>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
-            App-wide defaults for the thermal receipt template. Each invoice can override these in its own Customize panel.
+            App-wide defaults for every printed / PDF invoice. 70+ settings — every one dynamic. Each invoice can override via its Customize panel.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" style={{ fontSize: '0.82rem' }}
+            onClick={() => {
+              const next = { ...settings, onboardingComplete: false };
+              setSettings(next); savePrintSettings(next);
+              toast('Setup wizard will re-open on next page reload', 'info');
+            }}
+            title="Show the first-run wizard again">
+            🚀 Run setup wizard
+          </button>
           <button className="btn btn-secondary" style={{ fontSize: '0.82rem' }} onClick={reset}>
             <RotateCcw size={14} /> Reset defaults
           </button>
@@ -528,6 +537,196 @@ export default function PrintSettings() {
         )}
       </div>
 
+      {/* ============================================================ */}
+      {/* v1.9.3 — Full user control: 14 new dynamic sections */}
+      {/* ============================================================ */}
+
+      {/* -- BUSINESS TYPE PRESETS -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          ⚡ Business type presets — one-click configuration
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+          Applies 15+ recommended settings for your business type. You can still customise anything afterwards.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
+          {Object.entries(BUSINESS_PRESETS).map(([key, preset]) => (
+            <button key={key} type="button" className="btn btn-secondary"
+              style={{ fontSize: '0.8rem', padding: '0.6rem', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', gap: '3px' }}
+              onClick={() => {
+                if (!confirm(`Apply "${preset.label}" preset? This will overwrite ${Object.keys(preset.patch).length} settings.`)) return;
+                const next = applyBusinessPreset(settings, key);
+                setSettings(next);
+                savePrintSettings(next);
+                toast(`Applied "${preset.label}" preset`, 'success');
+              }}>
+              <strong>{preset.label}</strong>
+              <span style={{ fontSize: '0.7rem', opacity: 0.75 }}>{preset.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* -- SECTION LABELS (multi-language + custom text) -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          🌐 Section labels — multi-language + custom text
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+          Pick a language preset OR override any individual label. Custom text overrides the language preset for that field.
+        </p>
+        <SelectRow label="Language preset" value={settings.labelLanguage} onChange={v => set({ labelLanguage: v })}
+          options={[
+            ['en', 'English'],
+            ['hi', 'हिन्दी (Hindi)'],
+            ['ta', 'தமிழ் (Tamil)'],
+            ['mr', 'मराठी (Marathi)'],
+            ['bn', 'বাংলা (Bengali)'],
+          ]} />
+        <div style={{ marginTop: '0.75rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.6rem' }}>
+          <TextRow label='"BILL TO" label' value={settings.labelBillTo} onChange={v => set({ labelBillTo: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.billTo || LABEL_PRESETS.en.billTo} />
+          <TextRow label='"PLACE OF SUPPLY" label' value={settings.labelPlaceOfSupply} onChange={v => set({ labelPlaceOfSupply: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.placeOfSupply || LABEL_PRESETS.en.placeOfSupply} />
+          <TextRow label='"BANK DETAILS" label' value={settings.labelBankDetails} onChange={v => set({ labelBankDetails: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.bankDetails || LABEL_PRESETS.en.bankDetails} />
+          <TextRow label='"AMOUNT IN WORDS" label' value={settings.labelAmountInWords} onChange={v => set({ labelAmountInWords: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.amountInWords || LABEL_PRESETS.en.amountInWords} />
+          <TextRow label='"TERMS & CONDITIONS" label' value={settings.labelTerms} onChange={v => set({ labelTerms: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.terms || LABEL_PRESETS.en.terms} />
+          <TextRow label='"NOTES" label' value={settings.labelNotes} onChange={v => set({ labelNotes: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.notes || LABEL_PRESETS.en.notes} />
+          <TextRow label='"Authorized Signatory" text' value={settings.labelAuthorizedSignatory} onChange={v => set({ labelAuthorizedSignatory: v })}
+            placeholder={LABEL_PRESETS[settings.labelLanguage]?.authorizedSignatory || LABEL_PRESETS.en.authorizedSignatory} />
+        </div>
+      </div>
+
+      {/* -- FORMATTING (date, number, currency) -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          📅 Formatting — date, number, currency
+        </h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+          <SelectRow label="Date format" value={settings.dateFormat} onChange={v => set({ dateFormat: v })}
+            options={[
+              ['dd-mon-yyyy', '02 Apr 2026 (Indian)'],
+              ['dd-mmm-yyyy', '02-Apr-2026'],
+              ['dd-mm-yyyy', '02/04/2026'],
+              ['mm-dd-yyyy', '04/02/2026 (US)'],
+              ['yyyy-mm-dd', '2026-04-02'],
+              ['iso', 'ISO 8601'],
+            ]} />
+          <SelectRow label="Number grouping" value={settings.numberFormat} onChange={v => set({ numberFormat: v })}
+            options={[
+              ['indian', '1,00,000.00 (Indian)'],
+              ['western', '100,000.00 (Western)'],
+              ['european', '100.000,00 (European)'],
+            ]} />
+          <SelectRow label="Decimal places" value={String(settings.decimalPlaces)} onChange={v => set({ decimalPlaces: parseInt(v, 10) })}
+            options={[['0', '0 (no decimals)'], ['2', '2 (default)'], ['3', '3'], ['4', '4']]} />
+          <SelectRow label="Currency symbol position" value={settings.currencyPosition} onChange={v => set({ currencyPosition: v })}
+            options={[['before', '₹100 (before number)'], ['after', '100₹ (after number)']]} />
+        </div>
+      </div>
+
+      {/* -- ROW DENSITY -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          📏 Row density
+        </h4>
+        <SelectRow label="Vertical spacing in tables + sections" value={settings.rowDensity} onChange={v => set({ rowDensity: v })}
+          options={[
+            ['compact', 'Compact — fit more per page'],
+            ['normal', 'Normal (default)'],
+            ['comfortable', 'Comfortable — easier to read'],
+          ]}
+          hint="Affects both A4/A5 PDFs and the on-screen preview." />
+      </div>
+
+      {/* -- CUSTOM WATERMARK TEXT -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          💧 Custom watermark text
+        </h4>
+        <ToggleRow label="Use custom text (overrides preset)" value={settings.watermarkUseCustomText} onChange={v => set({ watermarkUseCustomText: v })}
+          hint="When enabled, the text below replaces the PAID/DUPLICATE/etc. preset picker." />
+        {settings.watermarkUseCustomText && (
+          <TextRow label="Watermark text" value={settings.watermarkCustomText} onChange={v => set({ watermarkCustomText: v })}
+            placeholder="e.g. CONFIDENTIAL · SAMPLE · PROOF ONLY · YOUR-COMPANY-NAME"
+            hint="Any text you want. Automatically uppercased. Only applies when Watermark is enabled." />
+        )}
+      </div>
+
+      {/* -- CUSTOM TAX RATES -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          💯 Custom tax rate presets
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>
+          Built-in rates: 0% · 5% · 12% · 18% · 28%. Add your own (e.g. 3% jewellery, 0.25% diamond, 7.5% custom).
+        </p>
+        <CustomListEditor
+          values={settings.customTaxRates || []}
+          onChange={v => set({ customTaxRates: v })}
+          placeholder="e.g. 3, 0.25, 7.5"
+          hint="Comma-separated numbers. Between 0 and 100." />
+      </div>
+
+      {/* -- CUSTOM INVOICE EXTRA FIELDS (v1.9.3 lite) -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          🏷 Custom fields (default on every invoice)
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>
+          Add labels that show under the client block on every invoice. Example: "PO Reference", "Delivery Slot", "Site Address". Value is filled per-invoice.
+        </p>
+        <ExtraFieldsEditor
+          fields={settings.customInvoiceFields || []}
+          onChange={v => set({ customInvoiceFields: v })} />
+      </div>
+
+      {/* -- COLUMN WIDTHS -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          📏 Items table column widths (percent)
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>
+          Must sum to 100%. Applies to A4/A5 sheet PDFs (thermal receipts use their own layout).
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+          {['item', 'hsn', 'qty', 'rate', 'tax', 'amount'].map(col => (
+            <NumInput key={col} label={col === 'item' ? 'Description' : col.toUpperCase()}
+              value={settings.columnWidths?.[col] ?? DEFAULT_PRINT_SETTINGS.columnWidths[col]}
+              min={4} max={80}
+              onChange={v => set({ columnWidths: { ...settings.columnWidths, [col]: v } })} />
+          ))}
+        </div>
+        <button type="button" className="btn btn-secondary" style={{ fontSize: '0.75rem', marginTop: '0.5rem' }}
+          onClick={() => set({ columnWidths: { ...DEFAULT_PRINT_SETTINGS.columnWidths } })}>
+          Reset to defaults
+        </button>
+      </div>
+
+      {/* -- SAVED CUSTOM TEMPLATES -- */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          💾 My saved templates
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.6rem' }}>
+          Save your current setup as a named template. Recall any time.
+        </p>
+        <SavedTemplatesEditor
+          templates={settings.savedTemplates || []}
+          onChange={v => set({ savedTemplates: v })}
+          currentSettings={settings}
+          onLoad={(tpl) => {
+            if (!confirm(`Load template "${tpl.name}"? This will overwrite your current settings.`)) return;
+            setSettings(tpl.settings);
+            savePrintSettings(tpl.settings);
+            toast(`Loaded "${tpl.name}"`, 'success');
+          }} />
+      </div>
+
       {/* LIVE PREVIEW */}
       <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -598,6 +797,102 @@ function SelectRow({ label, value, onChange, options, hint }) {
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
       {hint && <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{hint}</p>}
+    </div>
+  );
+}
+
+function CustomListEditor({ values, onChange, placeholder }) {
+  const [input, setInput] = useState('');
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+        {(values || []).map((v, i) => (
+          <span key={i} style={{ background: 'var(--primary)', color: '#fff', padding: '0.15rem 0.5rem', borderRadius: 12, fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {v}%
+            <button type="button" onClick={() => onChange(values.filter((_, j) => j !== i))}
+              style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, fontSize: '0.85rem', lineHeight: 1 }}>×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '0.35rem' }}>
+        <input type="text" value={input} onChange={e => setInput(e.target.value)}
+          placeholder={placeholder}
+          className="form-input" style={{ fontSize: '0.82rem', padding: '0.35rem 0.55rem', flex: 1 }} />
+        <button type="button" className="btn btn-secondary" style={{ fontSize: '0.78rem' }}
+          onClick={() => {
+            const parsed = input.split(',').map(s => parseFloat(s.trim())).filter(n => Number.isFinite(n) && n >= 0 && n <= 100);
+            if (parsed.length === 0) return;
+            const merged = Array.from(new Set([...(values || []), ...parsed])).sort((a, b) => a - b);
+            onChange(merged);
+            setInput('');
+          }}>Add</button>
+      </div>
+    </div>
+  );
+}
+
+function ExtraFieldsEditor({ fields, onChange }) {
+  const [label, setLabel] = useState('');
+  return (
+    <div>
+      {(fields || []).map((f, i) => (
+        <div key={i} style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.35rem' }}>
+          <input type="text" value={f.label} className="form-input"
+            style={{ fontSize: '0.82rem', padding: '0.35rem', flex: 1 }}
+            onChange={e => {
+              const next = [...fields];
+              next[i] = { ...next[i], label: e.target.value };
+              onChange(next);
+            }} />
+          <button type="button" className="icon-btn icon-btn-red"
+            onClick={() => onChange(fields.filter((_, j) => j !== i))}
+            title="Remove"><Trash2 size={14} /></button>
+        </div>
+      ))}
+      {(fields || []).length < 5 && (
+        <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.35rem' }}>
+          <input type="text" value={label} onChange={e => setLabel(e.target.value)}
+            placeholder="e.g. PO Reference"
+            className="form-input" style={{ fontSize: '0.82rem', padding: '0.35rem', flex: 1 }} />
+          <button type="button" className="btn btn-secondary" style={{ fontSize: '0.78rem' }}
+            onClick={() => {
+              if (!label.trim()) return;
+              onChange([...(fields || []), { label: label.trim(), value: '' }]);
+              setLabel('');
+            }}>Add field</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SavedTemplatesEditor({ templates, onChange, currentSettings, onLoad }) {
+  const [name, setName] = useState('');
+  return (
+    <div>
+      {(templates || []).map((tpl, i) => (
+        <div key={i} style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.35rem', alignItems: 'center', padding: '0.4rem', background: 'var(--card)', borderRadius: 5 }}>
+          <span style={{ flex: 1, fontSize: '0.82rem', fontWeight: 600 }}>{tpl.name}</span>
+          <button type="button" className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+            onClick={() => onLoad(tpl)}>Load</button>
+          <button type="button" className="icon-btn icon-btn-red"
+            onClick={() => onChange(templates.filter((_, j) => j !== i))}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.5rem' }}>
+        <input type="text" value={name} onChange={e => setName(e.target.value)}
+          placeholder="Template name (e.g. Retail v1)"
+          className="form-input" style={{ fontSize: '0.82rem', padding: '0.35rem', flex: 1 }} />
+        <button type="button" className="btn btn-primary" style={{ fontSize: '0.78rem' }}
+          onClick={() => {
+            if (!name.trim()) return;
+            onChange([...(templates || []), { name: name.trim(), settings: { ...currentSettings } }]);
+            setName('');
+            toast(`Saved template "${name.trim()}"`, 'success');
+          }}>
+          <SaveIcon size={13} /> Save current as template
+        </button>
+      </div>
     </div>
   );
 }

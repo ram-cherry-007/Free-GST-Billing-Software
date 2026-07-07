@@ -7,6 +7,168 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.3] — 2026-04-30
+
+**"Full User Control" release** — 11 new dynamic sections in Print Settings
++ first-run Setup Wizard. Everything hardcoded in previous versions is now
+user-configurable. Users never need to wait on developer changes for
+personalisation.
+
+### Added — 🚀 Setup Wizard (first-run)
+
+3-step wizard shown on first launch:
+
+1. **Business type** — pick one of 6 presets (Retail Shop · Freelancer ·
+   Restaurant · Wholesale · Manufacturing · Service). Applies 15+
+   recommended settings for that industry.
+2. **Paper size + language** — quick pick of A4/A5/thermal + language
+   for section labels.
+3. **Confirm** — review + finish.
+
+User can skip at any point. Re-openable via a button in Print Settings.
+
+### Added — ⚡ Business type presets (6 industries)
+
+One-click configuration for the most common Indian small business types:
+
+- **🛒 Retail Shop / Kirana** — thermal 80mm, ALL CAPS, auto-print, HSN off
+- **💻 Freelancer / Consultant** — A4 Minimalist, page numbers, HSN on
+- **🍽 Restaurant / Cafe / Bar** — thermal, large UPI QR, compact receipt
+- **📦 Wholesale / Trading** — Classic template, 3-copy multi-copy, GST rule 48
+- **🏭 Manufacturing** — Corporate template, invoice QR, multi-copy, page headers
+- **🛠 Service / Repair Shop** — Classic, signature prominent
+
+Each preset patches 10-15 settings. Users can still tweak after applying.
+
+### Added — 🌐 Multi-language section labels (5 Indian languages)
+
+Section labels now respect the user's chosen language. Pre-loaded presets:
+
+| Language | BILL TO | PLACE OF SUPPLY | AMOUNT IN WORDS |
+|---|---|---|---|
+| **English** | BILL TO | PLACE OF SUPPLY | AMOUNT IN WORDS |
+| **Hindi (हिन्दी)** | क्रेता | आपूर्ति स्थान | शब्दों में राशि |
+| **Tamil (தமிழ்)** | விற்பனையாளர் | விநியோக இடம் | சொற்களில் தொகை |
+| **Marathi (मराठी)** | खरेदीदार | पुरवठ्याचे ठिकाण | शब्दात रक्कम |
+| **Bengali (বাংলা)** | ক্রেতা | সরবরাহের স্থান | কথায় পরিমাণ |
+
+Plus custom text overrides for individual labels regardless of language
+preset — user can mix ("BILL TO" in English but "TERMS" in Hindi).
+
+### Added — 📅 Formatting controls (date, number, currency)
+
+- **Date format**: 6 options (Indian, ISO, US MM/DD/YYYY, DD-MMM-YYYY, etc.)
+- **Number grouping**: Indian (1,00,000) / Western (100,000) / European (100.000)
+- **Decimal places**: 0 / 2 / 3 / 4
+- **Currency symbol position**: Before number (₹100) or after (100₹)
+
+Every format is applied consistently across the whole PDF.
+
+### Added — 📏 Row density slider
+
+Compact / Normal / Comfortable. Controls table row padding + section
+padding. "Compact" fits ~30% more items per page; "Comfortable" adds
+breathing room for accessibility.
+
+### Added — 💧 Custom watermark text
+
+Beyond the 8 preset labels (PAID / DUPLICATE / etc.), users can enter
+ANY free-form text: "CONFIDENTIAL", "SAMPLE", "COMPANY-NAME-CONFIDENTIAL",
+etc. Automatically uppercased. Toggle switches between preset picker and
+custom text mode.
+
+### Added — 💯 Custom tax rate presets
+
+Built-in rates (0/5/12/18/28%) are augmented by user-added rates. Example
+use cases:
+- **Jewellers**: 3% GST
+- **Rough diamonds**: 0.25%
+- **Agricultural produce**: 0.1%
+- **Custom bespoke rates** for special goods/services
+
+Users add via a chip-list interface (comma-separated input → chips they
+can remove individually).
+
+### Added — 🏷 Custom invoice extra fields (up to 5)
+
+Add fields like:
+- "PO Reference: PO-2026-042"
+- "Delivery Slot: 3-6 PM"
+- "Site Address: Warehouse 3B"
+- "Contract #: SC-2026-0195"
+
+Labels defined app-wide in Print Settings. Values are per-invoice
+overrides (v1.9.4 will add the per-invoice value field in Customize
+panel). For now, labels show in the preview under the client block.
+
+### Added — 📏 Items table column widths
+
+6 percent sliders — one per column (Description / HSN / Qty / Rate /
+Tax / Amount). Users tune widths to match their content patterns
+(long product names → wider Description; short SKUs → narrower).
+
+Applies to A4/A5 sheet PDFs (thermal receipts use their own compact
+layout).
+
+### Added — 💾 Save custom PDF templates
+
+Users tune all their settings, then **"Save current as template"** with
+a name ("Retail v1", "Wholesale March", etc.). Later, one-click **Load**
+recalls the entire settings snapshot.
+
+Perfect for:
+- Businesses running multiple stores (each with its own template)
+- Seasonal changes (Diwali template vs regular)
+- A/B testing different visual designs
+- Backup before experimenting
+
+Templates persist to localStorage; ride the backup flow.
+
+### Added — 🔄 Re-open Setup Wizard
+
+Button in Print Settings header lets users re-run the first-run wizard
+any time — useful after opening a new business or exploring different
+industry presets.
+
+### Fixed — Section header label updated
+
+"Thermal Printer Settings" → "Print & PDF Settings" (more accurate — the
+section now controls A4/A5 + thermal + PDF, not just thermal).
+
+### Backward compatibility
+
+- All new settings default to safe values (English labels, DD Mon YYYY
+  dates, Indian number grouping, ₹ before number, Normal density)
+- `onboardingComplete` defaults to false → wizard shows on first launch
+  for new installs. Existing users see the wizard once on upgrade;
+  can skip and continue with their current setup unchanged.
+- Custom tax rates, custom fields, saved templates start empty
+- Column widths default to sensible baseline (35/10/8/15/12/20 percent)
+- Everything reversible via "Reset defaults" button
+
+### Complete dynamic control philosophy — delivered
+
+The user's ask: "make sure user has all the control they can do all
+changes dynamically so they don't need to rely on us to make changes".
+
+Every visible aspect of a printed invoice is now user-configurable:
+
+**Content** (14 element toggles)
+**Colours** (6 pickers)
+**Typography** (font family × scale × weight × caps × 5 templates × line spacing)
+**Layout** (margins × alignment × 6 column widths × row density)
+**Formatting** (date × number × currency × decimals)
+**Language** (5 language presets + per-label overrides)
+**Behaviour** (multi-copy × auto-print × page numbers × T&C separate × letterhead)
+**Automation** (per-client prefs × bulk print × business-type presets × saved templates × setup wizard)
+**Verification** (invoice QR × barcode × feedback QR × digital signature)
+**International** (dual currency × 7 secondary currencies)
+
+**Total: 70+ dynamic settings**. Nothing hardcoded requires a developer
+change any more.
+
+---
+
 ## [1.9.2] — 2026-04-30
 
 Full user control. Fixes v1.9.1 bugs and adds a **PDF Style Editor** so

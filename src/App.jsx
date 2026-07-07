@@ -13,12 +13,18 @@ import RecurringInvoices from './components/RecurringInvoices';
 import ReceiptVoucher from './components/ReceiptVoucher';
 import GSTReturns from './components/GSTReturns';
 import IncomeTax from './components/IncomeTax';
+import SetupWizard from './components/SetupWizard';
+import { getPrintSettings } from './utils/printSettings';
 import PurchaseBills from './components/PurchaseBills';
 import UserGuideView from './components/UserGuideView';
 import WelcomeGuide from './components/WelcomeGuide';
 import ToastContainer from './components/Toast';
 
 function App() {
+  // v1.9.3 — Setup Wizard shown on first-run (before onboardingComplete = true)
+  const [showWizard, setShowWizard] = useState(() => {
+    try { return !getPrintSettings().onboardingComplete; } catch { return false; }
+  });
   const [currentView, setCurrentView] = useState(() => {
     // PWA manifest "shortcuts" deep-link in via ?view=X (e.g. right-clicking
     // the pinned taskbar icon → "New Invoice" opens /?view=new). Honour that
@@ -463,6 +469,7 @@ function App() {
 
   return (
     <div className="app-layout">
+      {showWizard && <SetupWizard onClose={() => setShowWizard(false)} />}
       <div className="sidebar">
         <div className="sidebar-brand">
           <div className="sidebar-logo">

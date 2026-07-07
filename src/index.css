@@ -1258,6 +1258,18 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   border-color: #334155 !important;
 }
 
+/* v1.9.3 — Row density modifier. Applied to invoice-preview-container via
+   data-row-density attribute. Cascades to table rows + section blocks. */
+.invoice-preview-container[data-row-density="compact"] .inv-table th,
+.invoice-preview-container[data-row-density="compact"] .inv-table td { padding: 4px 6px !important; line-height: 1.25 !important; }
+.invoice-preview-container[data-row-density="compact"] .inv-parties,
+.invoice-preview-container[data-row-density="compact"] .inv-section { padding: 8px 12px !important; }
+
+.invoice-preview-container[data-row-density="comfortable"] .inv-table th,
+.invoice-preview-container[data-row-density="comfortable"] .inv-table td { padding: 12px 14px !important; line-height: 1.6 !important; }
+.invoice-preview-container[data-row-density="comfortable"] .inv-parties,
+.invoice-preview-container[data-row-density="comfortable"] .inv-section { padding: 20px 24px !important; }
+
 /* v1.9.2 — user-configurable colours via CSS custom properties.
    PrintSettings sets --pdf-primary-text etc. on the container; these
    rules cascade them down to child elements. */

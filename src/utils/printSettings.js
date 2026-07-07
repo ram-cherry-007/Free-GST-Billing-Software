@@ -136,7 +136,74 @@ export const DEFAULT_PRINT_SETTINGS = {
 
   // Print-mode text darkening — turn off if user has a modern high-quality
   // printer and prefers the on-screen greys.
-  pdfDarkenOnPrint: true,       // when true, printing-mode class forces darker gray text
+  pdfDarkenOnPrint: true,
+
+  // ============================================================
+  // v1.9.3 — Full user control. Every hardcoded string / format
+  // / preset now overridable so no developer changes are ever
+  // needed for personalisation. The "easiest tool to use"
+  // philosophy: 55+ settings, all discoverable, all persistent.
+  // ============================================================
+
+  // -- Custom section labels (multi-language) --
+  // Users can rename every visible label to match their brand or language.
+  // Pre-loaded presets: English (default), Hindi, Tamil, Marathi, Bengali.
+  // Users can override any individual label without picking a language preset.
+  labelLanguage: 'en',           // 'en' | 'hi' | 'ta' | 'mr' | 'bn' | 'custom'
+  labelBillTo: '',               // '' → use language preset; anything else → override
+  labelShipTo: '',
+  labelPlaceOfSupply: '',
+  labelAmountInWords: '',
+  labelBankDetails: '',
+  labelTerms: '',
+  labelNotes: '',
+  labelAuthorizedSignatory: '',
+  labelSubtotal: '',
+  labelTotal: '',
+  labelInvoice: '',              // "TAX INVOICE" title
+
+  // -- Layout density --
+  rowDensity: 'normal',          // 'compact' | 'normal' | 'comfortable'
+
+  // -- Currency + Number formatting --
+  currencyPosition: 'before',    // 'before' (₹100) | 'after' (100₹)
+  numberFormat: 'indian',        // 'indian' (1,00,000) | 'western' (100,000) | 'european' (100.000,00)
+  decimalPlaces: 2,              // 0 | 2 | 3 | 4
+
+  // -- Date format --
+  dateFormat: 'dd-mon-yyyy',     // 'dd-mon-yyyy' (02-Apr-2026) | 'dd-mm-yyyy' | 'mm-dd-yyyy' | 'yyyy-mm-dd' | 'dd-mmm-yyyy' | 'iso'
+
+  // -- Watermark: custom text option --
+  watermarkUseCustomText: false, // when true, watermarkCustomText overrides watermarkText preset
+  watermarkCustomText: '',
+
+  // -- Custom tax rate presets (user adds beyond 5/12/18/28) --
+  // Additive to the built-in list. User adds/removes via UI.
+  customTaxRates: [],            // [0.1, 0.25, 3, 7.5] etc.
+
+  // -- Custom invoice extra fields --
+  // Up to 5 free-form key:value pairs rendered under the client block.
+  // Example: [{ label: 'PO Reference', value: 'PO-2026-042' }]
+  customInvoiceFields: [],       // per-invoice overrides via invoiceOptions
+
+  // -- Column widths (items table, sheet PDFs) --
+  // Percent widths. Must sum to 100 (validated). Missing keys = auto-fill.
+  columnWidths: {
+    item: 35,    // description
+    hsn: 10,
+    qty: 8,
+    rate: 15,
+    tax: 12,
+    amount: 20,
+  },
+
+  // -- Saved custom PDF templates --
+  // Each saved template snapshot is a full settings object under a user-given
+  // name. Users tune → save as "Retail Template" → recall any time.
+  savedTemplates: [],            // [{ name: 'Retail v1', settings: {...} }]
+
+  // -- Setup / onboarding --
+  onboardingComplete: false,     // set to true after user finishes the setup wizard
 };
 
 export function getPrintSettings() {
@@ -154,6 +221,228 @@ export function savePrintSettings(settings) {
     localStorage.setItem('gst_printSettings', JSON.stringify(settings));
     return true;
   } catch { return false; }
+}
+
+// ============================================================================
+// v1.9.3 — Multi-language section labels
+// Presets for major Indian languages. User can override any individual label
+// via labelXxx field regardless of preset.
+// ============================================================================
+export const LABEL_PRESETS = {
+  en: {
+    billTo: 'BILL TO',
+    shipTo: 'SHIP TO',
+    placeOfSupply: 'PLACE OF SUPPLY',
+    amountInWords: 'AMOUNT IN WORDS',
+    bankDetails: 'BANK DETAILS',
+    terms: 'TERMS & CONDITIONS',
+    notes: 'NOTES',
+    authorizedSignatory: 'Authorized Signatory',
+    subtotal: 'Subtotal',
+    total: 'Total',
+    invoice: 'TAX INVOICE',
+  },
+  hi: {
+    billTo: 'क्रेता (BILL TO)',
+    shipTo: 'शिपिंग पता (SHIP TO)',
+    placeOfSupply: 'आपूर्ति स्थान',
+    amountInWords: 'शब्दों में राशि',
+    bankDetails: 'बैंक विवरण',
+    terms: 'नियम एवं शर्तें',
+    notes: 'टिप्पणी',
+    authorizedSignatory: 'अधिकृत हस्ताक्षरकर्ता',
+    subtotal: 'उप-कुल',
+    total: 'कुल',
+    invoice: 'कर चालान',
+  },
+  ta: {
+    billTo: 'விற்பனையாளர்',
+    shipTo: 'அனுப்பும் முகவரி',
+    placeOfSupply: 'விநியோக இடம்',
+    amountInWords: 'சொற்களில் தொகை',
+    bankDetails: 'வங்கி விவரங்கள்',
+    terms: 'விதிமுறைகள்',
+    notes: 'குறிப்புகள்',
+    authorizedSignatory: 'அங்கீகரிக்கப்பட்ட கையொப்பம்',
+    subtotal: 'மொத்தம்',
+    total: 'மொத்தத்தொகை',
+    invoice: 'வரி விலைப்பட்டியல்',
+  },
+  mr: {
+    billTo: 'खरेदीदार',
+    shipTo: 'शिपिंग पत्ता',
+    placeOfSupply: 'पुरवठ्याचे ठिकाण',
+    amountInWords: 'शब्दात रक्कम',
+    bankDetails: 'बँक तपशील',
+    terms: 'नियम व अटी',
+    notes: 'नोट्स',
+    authorizedSignatory: 'अधिकृत स्वाक्षरीकर्ता',
+    subtotal: 'उप-एकूण',
+    total: 'एकूण',
+    invoice: 'कर चलन',
+  },
+  bn: {
+    billTo: 'ক্রেতা',
+    shipTo: 'শিপিং ঠিকানা',
+    placeOfSupply: 'সরবরাহের স্থান',
+    amountInWords: 'কথায় পরিমাণ',
+    bankDetails: 'ব্যাংক বিবরণ',
+    terms: 'শর্তাবলী',
+    notes: 'নোট',
+    authorizedSignatory: 'অনুমোদিত স্বাক্ষরকারী',
+    subtotal: 'উপ-মোট',
+    total: 'মোট',
+    invoice: 'কর চালান',
+  },
+};
+
+// Resolve a label — priority: user override → language preset → English default
+export function getLabel(settings, key) {
+  const overrideKey = 'label' + key.charAt(0).toUpperCase() + key.slice(1);
+  if (settings[overrideKey]) return settings[overrideKey];
+  const preset = LABEL_PRESETS[settings.labelLanguage] || LABEL_PRESETS.en;
+  return preset[key] || LABEL_PRESETS.en[key] || '';
+}
+
+// ============================================================================
+// v1.9.3 — Number + date formatting
+// ============================================================================
+export function formatNumber(n, settings) {
+  const num = Number(n) || 0;
+  const decimals = Number(settings.decimalPlaces ?? 2);
+  const fmt = settings.numberFormat || 'indian';
+  const abs = Math.abs(num);
+  const rounded = abs.toFixed(decimals);
+
+  if (fmt === 'western') {
+    const [int, dec] = rounded.split('.');
+    const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (num < 0 ? '-' : '') + (dec ? `${grouped}.${dec}` : grouped);
+  }
+  if (fmt === 'european') {
+    const [int, dec] = rounded.split('.');
+    const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (num < 0 ? '-' : '') + (dec ? `${grouped},${dec}` : grouped);
+  }
+  // indian (default): 1,00,000 grouping
+  const [int, dec] = rounded.split('.');
+  const last3 = int.slice(-3);
+  const rest = int.slice(0, -3);
+  const grouped = rest ? rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + last3 : last3;
+  return (num < 0 ? '-' : '') + (dec ? `${grouped}.${dec}` : grouped);
+}
+
+export function formatCurrencyEx(n, currencyCode, settings) {
+  const symbolMap = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ', SGD: 'S$', AUD: 'A$', JPY: '¥', CAD: 'C$' };
+  const sym = symbolMap[currencyCode] || currencyCode;
+  const num = formatNumber(n, settings);
+  return settings.currencyPosition === 'after' ? `${num}${sym}` : `${sym}${num}`;
+}
+
+export function formatDate(dateStr, settings) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+  const fmt = settings.dateFormat || 'dd-mon-yyyy';
+  switch (fmt) {
+    case 'dd-mm-yyyy': return `${dd}/${mm}/${yyyy}`;
+    case 'mm-dd-yyyy': return `${mm}/${dd}/${yyyy}`;
+    case 'yyyy-mm-dd': return `${yyyy}-${mm}-${dd}`;
+    case 'iso': return d.toISOString().slice(0, 10);
+    case 'dd-mmm-yyyy': return `${dd}-${mon}-${yyyy}`;
+    case 'dd-mon-yyyy':
+    default: return `${dd} ${mon} ${yyyy}`;
+  }
+}
+
+// ============================================================================
+// v1.9.3 — Business type presets (one-click configuration)
+// Each preset patches printSettings with a common baseline for that vertical.
+// User can still tweak everything afterwards.
+// ============================================================================
+export const BUSINESS_PRESETS = {
+  retail_shop: {
+    label: '🛒 Retail Shop / Kirana',
+    hint: 'Small retail counter · thermal receipt · quick print',
+    patch: {
+      pdfTemplate: 'modern',
+      fontSize: 'medium', fontWeight: 'bold', allCaps: true,
+      autoPrintOnSave: true,
+      showRateLine: true, showHSN: false,
+      footerMessage: 'Thank you! Visit again!',
+      cutMark: true, feedLines: 2,
+      labelLanguage: 'en',
+    },
+  },
+  freelancer: {
+    label: '💻 Freelancer / Consultant',
+    hint: 'A4 PDF · monthly retainer · professional feel',
+    patch: {
+      pdfTemplate: 'minimalist',
+      showHSN: true, showAmountWords: true, showRateLine: true,
+      pageNumbersEnabled: true, pageHeaderEnabled: true,
+      pdfFontFamily: 'helvetica',
+      pdfQuality: 'standard',
+      labelLanguage: 'en',
+    },
+  },
+  restaurant: {
+    label: '🍽 Restaurant / Cafe / Bar',
+    hint: '80mm thermal · compact receipt · UPI QR prominent',
+    patch: {
+      pdfTemplate: 'modern',
+      fontSize: 'medium', fontWeight: 'bold', allCaps: false,
+      autoPrintOnSave: true,
+      showHSN: false, showRateLine: false, showAmountWords: false,
+      showUPI: true, qrSize: 'large',
+      cutMark: true, feedLines: 3,
+      footerMessage: 'Thanks for dining with us!',
+    },
+  },
+  wholesale: {
+    label: '📦 Wholesale / Trading',
+    hint: 'A5 landscape · multi-copy · GST rule 48 compliant',
+    patch: {
+      pdfTemplate: 'classic',
+      multiCopyEnabled: true, multiCopyCount: 3,
+      showHSN: true, showAmountWords: true,
+      pdfDarkenOnPrint: true,
+      pdfQuality: 'standard',
+      labelLanguage: 'en',
+    },
+  },
+  manufacturer: {
+    label: '🏭 Manufacturing',
+    hint: 'A4 · detailed items · e-Way Bill ready · multi-page headers',
+    patch: {
+      pdfTemplate: 'corporate',
+      showHSN: true, showAmountWords: true, showRateLine: true,
+      pageNumbersEnabled: true, pageHeaderEnabled: true,
+      invoiceQrEnabled: true,
+      multiCopyEnabled: true, multiCopyCount: 3,
+    },
+  },
+  service: {
+    label: '🛠 Service / Repair Shop',
+    hint: 'A5 portrait · single copy · signature line prominent',
+    patch: {
+      pdfTemplate: 'classic',
+      showHSN: false, showAmountWords: true,
+      signatureShow: true,
+      pdfFontFamily: 'helvetica',
+      labelLanguage: 'en',
+    },
+  },
+};
+
+export function applyBusinessPreset(currentSettings, presetKey) {
+  const preset = BUSINESS_PRESETS[presetKey];
+  if (!preset) return currentSettings;
+  return { ...currentSettings, ...preset.patch };
 }
 
 // Sample invoice for the Test Print button — uses the user's real business

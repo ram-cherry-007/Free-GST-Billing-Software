@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import DOMPurify from 'dompurify';
 import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine, getAccountById, getPaperSize } from '../utils';
-import { getPrintSettings } from '../utils/printSettings';
+import { getPrintSettings, getLabel } from '../utils/printSettings';
 
 const InvoicePreview = React.forwardRef(({ profile, client, details, items, totals, invoiceType = 'tax-invoice', customTerms, customNotes, extraSections = [], options = {} }, ref) => {
   // Interstate detection must match InvoiceGenerator.jsx — it honours
@@ -78,6 +78,8 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // (or on a new line) for foreign clients. E.g. ₹5,000 (≈ USD 60.24).
   // Rate is manually maintained by user in Print Settings.
   const _ps_dc = getPrintSettings();
+  // v1.9.3 — same settings alias used by getLabel() calls throughout the JSX
+  const _ps_labels = _ps_dc;
   const dualCurrencyOn = _ps_dc.dualCurrencyEnabled && currencySymbol === 'INR' && _ps_dc.dualCurrencyCode && Number(_ps_dc.dualCurrencyRate) > 0;
   const fmtDualSecondary = (amount) => {
     if (!dualCurrencyOn || _ps_dc.dualCurrencyPosition !== 'below') return '';
@@ -260,7 +262,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     return (
       <div className="inv-parties" style={padStyle}>
         <div className="inv-party">
-          <h4 className="inv-section-label">BILL TO</h4>
+          <h4 className="inv-section-label">{getLabel(_ps_labels, 'billTo')}</h4>
           <p className="inv-party-name">{client?.name || 'Client Name'}</p>
           <div className="inv-party-details">
             {showClientAddress && client?.address && <p>{client.address}</p>}
@@ -273,7 +275,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         </div>
         {showPlaceOfSupply && (
           <div className="inv-party inv-party-right">
-            <h4 className="inv-section-label">PLACE OF SUPPLY</h4>
+            <h4 className="inv-section-label">{getLabel(_ps_labels, 'placeOfSupply')}</h4>
             <p className="inv-party-name">{details?.placeOfSupply || client?.state || '-'}</p>
             {showGST && isIndia && isInterstate && <span className="inv-tax-badge">Interstate (IGST)</span>}
             {showGST && isIndia && !isInterstate && businessState && clientState && <span className="inv-tax-badge inv-tax-badge-green">Intrastate (CGST + SGST)</span>}
@@ -668,6 +670,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     <div
       className={`invoice-preview-container ${paperCfg.cssClass} template-${pdfStyleVariant}`}
       data-user-colors={_ps_final.userColorsEnabled ? '1' : '0'}
+      data-row-density={_ps_final.rowDensity || 'normal'}
       ref={ref} id="invoice-preview" style={finalContainerStyle}>
       {!hideHeaderBecauseLetterhead && pdfStyle === 'modern' && renderModernHeader()}
       {!hideHeaderBecauseLetterhead && pdfStyle === 'minimal' && renderMinimalHeader()}
@@ -798,7 +801,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         <div className="inv-words">
           {showAmountWords && (
             <>
-              <h4 className="inv-section-label">AMOUNT IN WORDS</h4>
+              <h4 className="inv-section-label">{getLabel(_ps_labels, 'amountInWords')}</h4>
               <p className="inv-words-text">{amountInWords(totals.total)}</p>
               {/* v1.9.1 — dual currency below the words line (foreign clients) */}
               {dualCurrencyOn && (
@@ -931,7 +934,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               field exists — guarantees byte-identical PDFs for v1.4.3 invoices. */}
           {showBankDetails && (account?.bankName || profile?.bankName) && (
             <div className="inv-footer-block">
-              <h4 className="inv-section-label">BANK DETAILS</h4>
+              <h4 className="inv-section-label">{getLabel(_ps_labels, 'bankDetails')}</h4>
               {showAccountLabel && account?.label && (
                 <p style={{ margin: '0 0 0.25rem', fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
                   Pay via: <strong style={{ color: '#334155' }}>{account.label}</strong>
@@ -959,7 +962,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
             const hasTerms = termsHtml && termsHtml.replace(/<[^>]*>/g, '').trim();
             return showTerms && hasTerms ? (
               <div className="inv-footer-block">
-                <h4 className="inv-section-label">TERMS & CONDITIONS</h4>
+                <h4 className="inv-section-label">{getLabel(_ps_labels, 'terms')}</h4>
                 <div className="inv-terms inv-rich" dangerouslySetInnerHTML={{ __html: termsHtml }} />
               </div>
             ) : null;
@@ -969,7 +972,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
             const hasNotes = notesHtml && notesHtml.replace(/<[^>]*>/g, '').trim();
             return showNotes && hasNotes ? (
               <div className="inv-footer-block">
-                <h4 className="inv-section-label">NOTES / REMARKS</h4>
+                <h4 className="inv-section-label">{getLabel(_ps_labels, 'notes')}</h4>
                 <div className="inv-terms inv-rich" dangerouslySetInnerHTML={{ __html: notesHtml }} />
               </div>
             ) : null;
