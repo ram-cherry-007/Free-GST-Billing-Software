@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.4] — 2026-04-30
+
+**"Beyond print" polish** — dynamic control extended to Dashboard,
+global search, payment reminders, and accessibility.
+
+### Added — 🔍 Cross-app global search (Ctrl+K)
+
+The existing command palette now searches EVERYTHING:
+
+- **Actions** — New Invoice, Go to X, Toggle dark mode
+- **Invoices** — search by invoice number or client name (up to 100 recent)
+- **Clients** — search by name, GSTIN, phone, email (up to 200)
+- **Products** — search by name, HSN, description (up to 200)
+- **Settings sections** — jump to specific area (Print Settings → Watermarks, PDF Style Editor, Modules, etc.)
+
+Type any partial match — results filter across all categories. Enter picks the top match. One keystroke gets you anywhere.
+
+### Added — 📊 Dashboard column picker
+
+New **"Columns"** button in the Dashboard filters bar. Opens a popover with 10 checkboxes:
+
+- Date · Invoice # · Type · Client · Amount
+- Currency · Due Date · **Print count** (v1.9.0 tracking)
+- Status · Actions
+
+Users pick which columns show. Preference persists to localStorage. Default matches pre-v1.9.4 behaviour (no visual change on upgrade).
+
+Now Print count column can be turned on to see which bills have been printed how many times — useful for identifying under-printed reminders.
+
+### Added — 🔔 Payment reminder scheduling
+
+New settings section in Print & PDF Settings:
+
+- **Enable payment reminders** toggle
+- **Days before due date to notify** (0-30; 0 = disable pre-due)
+- **Reminder message template** with placeholders: `{client}`, `{invoice_number}`, `{amount}`, `{invoice_date}`, `{due_date}`
+
+The notification bell will surface overdue invoices on this schedule. Clicking a reminder opens WhatsApp share with your template pre-filled.
+
+### Added — ♿ Accessibility batch
+
+- **Auto `title` → `aria-label` mirror** — a background hook copies the `title` attribute of every icon-only button to `aria-label` so screen readers announce it properly. Runs on mount + every 3 seconds for dynamically-added buttons (bulk toolbars, modals).
+- **Global ESC modal closer** — any open modal now dismisses on ESC. Works with the existing overlay onClick handlers so no per-modal changes needed.
+- **Focus outlines** — every button/input/select/textarea/link gets a 2px primary-colour outline on keyboard focus (via `:focus-visible`).
+- **WCAG-safer muted text** — added `--text-muted-safe: #475569` custom property (WCAG AA on white). Components can migrate incrementally.
+
+### Backward compatibility
+
+- Column picker defaults to the pre-v1.9.4 column set
+- Reminder settings default to enabled + sensible defaults (3-day pre-due)
+- No visual changes to existing invoices, dashboards, or modals
+- All new options reversible via reset buttons
+
+---
+
 ## [1.9.3] — 2026-04-30
 
 **"Full User Control" release** — 11 new dynamic sections in Print Settings

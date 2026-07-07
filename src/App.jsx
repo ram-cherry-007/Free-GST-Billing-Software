@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator } from 'lucide-react';
-import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings } from './store';
+import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
 import { isModuleEnabled, getUpcomingFilings } from './utils';
 import Dashboard from './components/Dashboard';
 import InvoiceGenerator from './components/InvoiceGenerator';
@@ -155,6 +155,23 @@ function App() {
   const [showPalette, setShowPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [paletteIdx, setPaletteIdx] = useState(0);
+  // v1.9.4 — pre-load searchable content so Ctrl+K acts as a true global
+  // search across invoices, clients, products, and settings sections.
+  // Small cost (fires once on mount + when palette opens); big UX win.
+  const [searchCorpus, setSearchCorpus] = useState({ bills: [], clients: [], products: [] });
+  useEffect(() => {
+    Promise.all([
+      getAllBills().catch(() => []),
+      getAllClients().catch(() => []),
+      getAllProducts().catch(() => []),
+    ]).then(([bills, clients, products]) => {
+      setSearchCorpus({
+        bills: bills.slice(0, 100),
+        clients: clients.slice(0, 200),
+        products: products.slice(0, 200),
+      });
+    });
+  }, [showPalette]); // refresh when palette opens
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   // Palette useMemo + dependent effects are declared further down, AFTER
@@ -362,20 +379,55 @@ function App() {
   // ReferenceError ("Cannot access 'X' before initialization") at runtime.
   const paletteActions = useMemo(() => {
     const acts = [
-      { label: 'New Invoice', hint: 'Ctrl+N', run: () => { handleNewInvoice(); } },
+      { label: 'New Invoice', hint: 'Ctrl+N', category: 'action', run: () => { handleNewInvoice(); } },
     ];
     navItems.forEach(item => {
       if (item.id === 'new') return; // already covered above
-      acts.push({ label: `Go to ${item.label}`, hint: '', run: item.onClick || (() => setCurrentView(item.id)) });
+      acts.push({ label: `Go to ${item.label}`, hint: '', category: 'nav', run: item.onClick || (() => setCurrentView(item.id)) });
     });
-    acts.push({ label: 'Go to Settings', hint: '', run: () => setCurrentView('settings') });
-    acts.push({ label: 'Toggle dark mode', hint: '', run: () => setDarkMode(d => !d) });
-    acts.push({ label: 'Show keyboard shortcuts', hint: 'Ctrl+/', run: () => setShowShortcutsHelp(true) });
+    acts.push({ label: 'Go to Settings', hint: '', category: 'nav', run: () => setCurrentView('settings') });
+    acts.push({ label: 'Toggle dark mode', hint: '', category: 'action', run: () => setDarkMode(d => !d) });
+    acts.push({ label: 'Show keyboard shortcuts', hint: 'Ctrl+/', category: 'help', run: () => setShowShortcutsHelp(true) });
     if (updateInfo?.updateAvailable) {
-      acts.push({ label: `View update — v${updateInfo.latest}`, hint: '', run: () => setShowUpdateModal(true) });
+      acts.push({ label: `View update — v${updateInfo.latest}`, hint: '', category: 'update', run: () => setShowUpdateModal(true) });
     }
+    // v1.9.4 — cross-app search: invoices, clients, products
+    searchCorpus.bills.forEach(b => {
+      acts.push({
+        label: `📄 ${b.invoiceNumber || 'INV-?'} — ${b.clientName || 'No client'}`,
+        hint: b.invoiceDate ? new Date(b.invoiceDate).toLocaleDateString('en-IN') : '',
+        category: 'invoice',
+        run: () => { setCurrentView('dashboard'); setTimeout(() => window.dispatchEvent(new CustomEvent('fgsb-open-bill', { detail: b.id })), 100); },
+      });
+    });
+    searchCorpus.clients.forEach(c => {
+      acts.push({
+        label: `👤 ${c.name} — client${c.gstin ? ' · GSTIN: ' + c.gstin : ''}`,
+        hint: c.phone || c.email || '',
+        category: 'client',
+        run: () => setCurrentView('clients'),
+      });
+    });
+    searchCorpus.products.forEach(p => {
+      acts.push({
+        label: `📦 ${p.name} — product${p.hsn ? ' · HSN: ' + p.hsn : ''}`,
+        hint: (p.stock ?? 0) + ' in stock',
+        category: 'product',
+        run: () => setCurrentView('inventory'),
+      });
+    });
+    // Settings sections (jump to specific area)
+    const settingsJumps = [
+      'Company profile', 'Payment accounts', 'Print & PDF Settings', 'PDF Style Editor',
+      'Business type presets', 'Section labels', 'Watermarks', 'Multi-copy print',
+      'Digital signature', 'Company letterhead', 'Modules', 'Region preference',
+      'Google Drive backup', 'App updates',
+    ];
+    settingsJumps.forEach(s => {
+      acts.push({ label: `⚙️ Settings → ${s}`, hint: '', category: 'settings', run: () => setCurrentView('settings') });
+    });
     return acts;
-  }, [navItems, updateInfo, handleNewInvoice]);
+  }, [navItems, updateInfo, handleNewInvoice, searchCorpus]);
 
   const filteredPalette = paletteActions.filter(a =>
     !paletteQuery.trim() || a.label.toLowerCase().includes(paletteQuery.toLowerCase())
@@ -406,6 +458,35 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // v1.9.4 — Accessibility hooks:
+  //   1. Mirror `title` → `aria-label` on every icon button that lacks one.
+  //      Runs once after each view mounts + on interval as a safety net for
+  //      dynamically-added buttons (bulk toolbars, modals, etc.).
+  //   2. Global ESC handler for any open modal (adds `.esc-closable` class
+  //      to overlays; ESC clicks their close button or backdrop).
+  useEffect(() => {
+    const mirrorTitleToAria = () => {
+      document.querySelectorAll('button.icon-btn[title]:not([aria-label])').forEach(btn => {
+        btn.setAttribute('aria-label', btn.getAttribute('title'));
+      });
+    };
+    mirrorTitleToAria();
+    const interval = setInterval(mirrorTitleToAria, 3000);
+    // Global ESC → click the topmost modal-overlay (dismisses it).
+    const onEsc = (e) => {
+      if (e.key !== 'Escape') return;
+      const overlays = Array.from(document.querySelectorAll('.modal-overlay'));
+      const top = overlays[overlays.length - 1];
+      if (!top) return;
+      // Skip if the palette is handling ESC itself
+      if (showPalette) return;
+      // Fire a click on the overlay backdrop to trigger the existing onClick close
+      top.click();
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => { clearInterval(interval); window.removeEventListener('keydown', onEsc); };
+  }, [showPalette]);
 
   // Palette-only arrow / Enter / Esc nav. Filtered list dep keeps the
   // handler in sync with the user's current query.

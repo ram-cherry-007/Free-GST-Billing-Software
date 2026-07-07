@@ -37,6 +37,22 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
   // elsewhere. Cleared whenever filters change so the user doesn't accidentally
   // bulk-act on bills they can no longer see.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  // v1.9.4 — column picker. Persist to localStorage. Default set matches
+  // the pre-v1.9.4 hardcoded columns so no visual change on upgrade.
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('gst_dashboardColumns') || 'null');
+      if (saved && typeof saved === 'object') return saved;
+    } catch { /* ignore */ }
+    return {
+      date: true, invoice: true, type: true, client: true, amount: true,
+      status: true, actions: true, printed: false, currency: false, dueDate: false,
+    };
+  });
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem('gst_dashboardColumns', JSON.stringify(visibleColumns)); } catch { /* ignore */ }
+  }, [visibleColumns]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [paymentModal, setPaymentModal] = useState(null);
   const [paymentInput, setPaymentInput] = useState({ amount: '', date: '', mode: 'bank-transfer', note: '' });
@@ -608,8 +624,40 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
           </select>
           <input type="date" className="filter-date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From" />
           <input type="date" className="filter-date" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To" />
-          {hasFilters && <button className="icon-btn icon-btn-red" onClick={clearFilters} title="Clear"><X size={15} /></button>}
+          {hasFilters && <button className="icon-btn icon-btn-red" onClick={clearFilters} title="Clear" aria-label="Clear filters"><X size={15} /></button>}
+          <button type="button" className="icon-btn" onClick={() => setShowColumnPicker(v => !v)}
+            title="Choose which columns to show" aria-label="Column picker"
+            style={{ marginLeft: 'auto' }}>
+            <FileText size={15} /> Columns
+          </button>
         </div>
+
+        {/* v1.9.4 — column picker popover */}
+        {showColumnPicker && (
+          <div style={{
+            padding: '0.75rem 1rem', margin: '0.5rem 0',
+            background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+          }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>
+              Pick columns to show
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {[
+                ['date', 'Date'], ['invoice', 'Invoice #'], ['type', 'Type'],
+                ['client', 'Client'], ['amount', 'Amount'], ['currency', 'Currency'],
+                ['status', 'Status'], ['dueDate', 'Due date'],
+                ['printed', 'Print count'], ['actions', 'Actions'],
+              ].map(([key, label]) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!visibleColumns[key]}
+                    onChange={e => setVisibleColumns(prev => ({ ...prev, [key]: e.target.checked }))}
+                    style={{ width: 14, height: 14, accentColor: 'var(--primary)' }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* v1.9.1 — Quick bulk-print filters. One-click "print everything
              matching X" without needing to manually tick rows. Useful for
@@ -691,14 +739,17 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
                       title="Select all visible"
                       style={{ width: 15, height: 15, accentColor: 'var(--primary)', cursor: 'pointer' }} />
                   </th>
-                  <th>Date</th>
-                  <th>Invoice No.</th>
-                  <th>Type</th>
-                  <th>Client</th>
-                  <th>Amount</th>
+                  {visibleColumns.date && <th>Date</th>}
+                  {visibleColumns.invoice && <th>Invoice No.</th>}
+                  {visibleColumns.type && <th>Type</th>}
+                  {visibleColumns.client && <th>Client</th>}
+                  {visibleColumns.amount && <th>Amount</th>}
+                  {visibleColumns.currency && <th>Currency</th>}
+                  {visibleColumns.dueDate && <th>Due Date</th>}
+                  {visibleColumns.printed && <th>Printed</th>}
                   <th>Paid</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  {visibleColumns.status && <th>Status</th>}
+                  {visibleColumns.actions && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -715,23 +766,26 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
                         <input type="checkbox" checked={selectedIds.has(bill.id)} onChange={() => toggleSelect(bill.id)}
                           style={{ width: 15, height: 15, accentColor: 'var(--primary)', cursor: 'pointer' }} />
                       </td>
-                      <td className="text-muted">{new Date(bill.invoiceDate).toLocaleDateString('en-IN')}</td>
-                      <td><span className="invoice-badge">{bill.invoiceNumber}</span></td>
-                      <td><span className="type-badge">{(INVOICE_TYPES[bill.invoiceType || 'tax-invoice'])?.label}</span></td>
-                      <td className="font-medium td-client" title={bill.clientName}>
+                      {visibleColumns.date && <td className="text-muted">{new Date(bill.invoiceDate).toLocaleDateString('en-IN')}</td>}
+                      {visibleColumns.invoice && <td><span className="invoice-badge">{bill.invoiceNumber}</span></td>}
+                      {visibleColumns.type && <td><span className="type-badge">{(INVOICE_TYPES[bill.invoiceType || 'tax-invoice'])?.label}</span></td>}
+                      {visibleColumns.client && <td className="font-medium td-client" title={bill.clientName}>
                         {bill.clientName}
                         {bill.data?.internalNote && (
                           <span title={bill.data.internalNote} style={{ marginLeft: 4, cursor: 'help', verticalAlign: 'middle' }}>
                             <StickyNote size={13} style={{ color: '#ca8a04' }} />
                           </span>
                         )}
-                      </td>
-                      <td className="font-bold">
+                      </td>}
+                      {visibleColumns.amount && <td className="font-bold">
                         {formatCurrency(bill.totalAmount, billCurrency)}
-                        {billCurrency !== 'INR' && <span style={{ marginLeft: 5, fontSize: '0.7rem', fontWeight: 600, color: '#3b82f6', background: 'rgba(59,130,246,0.1)', padding: '1px 5px', borderRadius: 4 }}>{billCurrency}</span>}
-                      </td>
+                        {billCurrency !== 'INR' && !visibleColumns.currency && <span style={{ marginLeft: 5, fontSize: '0.7rem', fontWeight: 600, color: '#3b82f6', background: 'rgba(59,130,246,0.1)', padding: '1px 5px', borderRadius: 4 }}>{billCurrency}</span>}
+                      </td>}
+                      {visibleColumns.currency && <td className="text-muted">{billCurrency}</td>}
+                      {visibleColumns.dueDate && <td className="text-muted">{bill.data?.details?.dueDate ? new Date(bill.data.details.dueDate).toLocaleDateString('en-IN') : '-'}</td>}
+                      {visibleColumns.printed && <td className="text-muted" style={{ textAlign: 'center' }}>{Number(bill.printedCount) || 0}×</td>}
                       <td className="text-muted">{(bill.paidAmount || 0) > 0 ? formatCurrency(bill.paidAmount, billCurrency) : '-'}</td>
-                      <td>
+                      {visibleColumns.status && <td>
                         <select className="status-select" value={isOverdue && status !== 'overdue' ? 'overdue' : status}
                           style={{ background: sc.bg, color: sc.color, borderColor: sc.color + '44' }}
                           onChange={e => changeStatus(bill, e.target.value)}>
@@ -740,8 +794,8 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
                           ))}
                         </select>
                         {daysOverdue > 0 && <span style={{ fontSize: '0.7rem', color: '#dc2626', display: 'block', marginTop: 2 }}>{daysOverdue}d overdue</span>}
-                      </td>
-                      <td>
+                      </td>}
+                      {visibleColumns.actions && <td>
                         <div className="table-actions">
                           <button className="icon-btn icon-btn-blue" onClick={() => handleView(bill)} title="Edit"><Edit3 size={15} /></button>
                           <button className="icon-btn icon-btn-blue" onClick={() => onDuplicate(bill)} title="Duplicate"><Copy size={15} /></button>
@@ -756,7 +810,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert }) {
                           <button className="icon-btn icon-btn-blue" onClick={() => shareEmail(bill)} title="Email"><Mail size={15} /></button>
                           <button className="icon-btn icon-btn-red" onClick={() => handleDelete(bill)} title="Delete"><Trash2 size={15} /></button>
                         </div>
-                      </td>
+                      </td>}
                     </tr>
                   );
                 })}

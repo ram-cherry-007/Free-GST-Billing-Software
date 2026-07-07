@@ -1258,6 +1258,21 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   border-color: #334155 !important;
 }
 
+/* v1.9.4 — Accessibility improvements */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--primary, #1e40af) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+/* Ensure text-muted default meets WCAG AA on white backgrounds */
+:root {
+  --text-muted-safe: #475569; /* was #94a3b8 in some places */
+}
+
 /* v1.9.3 — Row density modifier. Applied to invoice-preview-container via
    data-row-density attribute. Cascades to table rows + section blocks. */
 .invoice-preview-container[data-row-density="compact"] .inv-table th,

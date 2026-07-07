@@ -204,6 +204,18 @@ export const DEFAULT_PRINT_SETTINGS = {
 
   // -- Setup / onboarding --
   onboardingComplete: false,     // set to true after user finishes the setup wizard
+
+  // ============================================================
+  // v1.9.4 — Payment reminder auto-scheduling + accessibility opts
+  // ============================================================
+  // Reminders are advisory: when the notification centre polls upcoming
+  // filings + low stock, it also checks overdue invoices and surfaces
+  // them here. Users get a bell-badge count; clicking opens the affected
+  // bill's WhatsApp share prefilled with a reminder message.
+  reminderEnabled: true,             // show overdue-invoice reminders in bell centre
+  reminderDaysBeforeDue: 3,          // notify N days before due date (0 = disable pre-due nag)
+  reminderDaysAfterOverdue: [1, 7, 14, 30], // send reminder N days after overdue
+  reminderTemplate: 'Hi {client}, this is a friendly reminder about invoice {invoice_number} for {amount} dated {invoice_date}. Kindly make the payment at your earliest convenience. Thank you!',
 };
 
 export function getPrintSettings() {

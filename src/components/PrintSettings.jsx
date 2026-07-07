@@ -727,6 +727,27 @@ export default function PrintSettings() {
           }} />
       </div>
 
+      {/* v1.9.4 — PAYMENT REMINDER SCHEDULING */}
+      <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--primary)' }}>
+          🔔 Payment reminder scheduling
+        </h4>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+          The notification bell surfaces overdue invoices on your schedule. Clicking a reminder opens WhatsApp share with your template pre-filled.
+        </p>
+        <ToggleRow label="Enable payment reminders" value={settings.reminderEnabled} onChange={v => set({ reminderEnabled: v })} />
+        {settings.reminderEnabled && (
+          <>
+            <NumInput label="Notify N days before due date (0 = disable)" value={settings.reminderDaysBeforeDue}
+              onChange={v => set({ reminderDaysBeforeDue: v })} min={0} max={30} />
+            <TextRow label="Reminder message template"
+              value={settings.reminderTemplate}
+              onChange={v => set({ reminderTemplate: v })}
+              hint="Placeholders: {client} · {invoice_number} · {amount} · {invoice_date} · {due_date}" />
+          </>
+        )}
+      </div>
+
       {/* LIVE PREVIEW */}
       <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
