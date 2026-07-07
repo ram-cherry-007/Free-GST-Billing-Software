@@ -167,6 +167,15 @@ export const deleteBill = async (id) => {
   return apiFetch(`${API}/bills/${encodeURIComponent(id)}`, { method: 'DELETE' });
 };
 
+// v1.9.5 — Automatic backups + trash bin
+export const getBackupsList = async () => apiFetch(`${API}/backups`);
+export const restoreBackup = async (date) => apiFetch(`${API}/backups/${encodeURIComponent(date)}/restore`, { method: 'POST', body: JSON.stringify({}) });
+export const triggerBackup = async () => apiFetch(`${API}/backups/now`, { method: 'POST', body: JSON.stringify({}) });
+
+export const getTrashedBills = async () => apiFetch(`${API}/trash`);
+export const restoreTrashedBill = async (id) => apiFetch(`${API}/trash/${encodeURIComponent(id)}/restore`, { method: 'POST', body: JSON.stringify({}) });
+export const purgeTrashedBill = async (id) => apiFetch(`${API}/trash/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
 // ---- Profile ----
 export const saveProfile = async (profile) => {
   return apiFetch(`${API}/profile`, { method: 'POST', body: JSON.stringify(profile) });

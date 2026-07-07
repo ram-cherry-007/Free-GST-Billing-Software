@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { getProfile, saveProfile, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode, getEnabledModules, setEnabledModules, getStockAlertSettings, saveStockAlertSettings } from '../store';
 import { ensureToken, findOrCreateFolder, uploadJSON } from '../services/googleDrive';
 import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, FEATURE_GROUPS, isModuleEnabled, getPaymentAccounts, createEmptyAccount, maskAccountNumber, reorderAccounts, setDefaultAccount, isValidUpiId } from '../utils';
-import { Save, Upload, Download, Plus, Trash2, Edit3, Image, PenTool, Cloud, CloudOff, Building2, Hash, RefreshCw } from 'lucide-react';
+import { Save, Upload, Download, Plus, Trash2, Edit3, Image, PenTool, Cloud, CloudOff, Building2, Hash, RefreshCw, Save as SaveIcon } from 'lucide-react';
 import { initGoogleDrive, isConnected, disconnect } from '../services/googleDrive';
 import { toast } from './Toast';
 import PrintSettings from './PrintSettings';
+import { getBackupsList, restoreBackup, triggerBackup, getTrashedBills, restoreTrashedBill, purgeTrashedBill } from '../store';
 
 export default function SettingsView({ onSaved }) {
   const [profile, setProfile] = useState({
@@ -523,6 +524,9 @@ export default function SettingsView({ onSaved }) {
 
       {/* ---- Thermal Printer Settings ---- */}
       <PrintSettings />
+
+      {/* v1.9.5 — Backup Management + Trash Bin */}
+      <BackupAndTrashPanel />
 
       {/* ---- Modules / Features ---- */}
       <div className="glass-panel p-6 mb-6">
@@ -1334,5 +1338,142 @@ function EditIcon({ size }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" />
     </svg>
+  );
+}
+
+// ============================================================
+// v1.9.5 — Backup Management + Trash Bin
+// ============================================================
+function BackupAndTrashPanel() {
+  const [backups, setBackups] = useState([]);
+  const [trash, setTrash] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadAll = async () => {
+    setLoading(true);
+    try {
+      const [b, t] = await Promise.all([
+        getBackupsList().catch(() => []),
+        getTrashedBills().catch(() => []),
+      ]);
+      setBackups(b);
+      setTrash(t);
+    } catch { /* ignore */ }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadAll(); }, []);
+
+  const handleRestoreBackup = async (date) => {
+    if (!confirm(`Restore all data from backup ${date}? This OVERWRITES your current data. A snapshot of the current state will be taken first.`)) return;
+    try {
+      await triggerBackup();
+      await restoreBackup(date);
+      toast('Backup restored — please reload the page to see the data', 'success');
+    } catch (err) {
+      toast('Restore failed: ' + err.message, 'error');
+    }
+  };
+
+  const handleRestoreTrash = async (id) => {
+    try {
+      await restoreTrashedBill(id);
+      toast('Invoice restored', 'success');
+      loadAll();
+    } catch (err) {
+      toast('Restore failed: ' + err.message, 'error');
+    }
+  };
+
+  const handlePurgeTrash = async (id) => {
+    if (!confirm('Permanently delete this invoice? Cannot be undone.')) return;
+    try {
+      await purgeTrashedBill(id);
+      toast('Invoice permanently deleted', 'info');
+      loadAll();
+    } catch (err) {
+      toast('Purge failed: ' + err.message, 'error');
+    }
+  };
+
+  return (
+    <div className="glass-panel p-6 mb-6">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.75rem' }}>
+        <div>
+          <h3 className="section-title" style={{ marginTop: 0, marginBottom: '0.25rem' }}>
+            💾 Backup Management + 🗑 Trash Bin
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+            Automatic daily snapshots kept for 30 days · Deleted invoices soft-trash for 30 days (v1.9.5+).
+          </p>
+        </div>
+        <button className="btn btn-secondary" style={{ fontSize: '0.82rem' }}
+          onClick={async () => {
+            await triggerBackup();
+            toast('Manual backup triggered', 'success');
+            loadAll();
+          }}>
+          <SaveIcon size={14} /> Backup now
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+        {/* Backups list */}
+        <div style={{ padding: '0.85rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+          <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>📅 Daily backups ({backups.length})</h4>
+          {loading && backups.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading…</p>}
+          {!loading && backups.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No backups yet — the first will be created at midnight or click "Backup now" above.</p>}
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {backups.map(b => (
+              <div key={b.date} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '0.4rem 0.6rem', marginBottom: '0.25rem',
+                background: 'var(--card)', borderRadius: 4, fontSize: '0.82rem',
+              }}>
+                <div>
+                  <strong>{b.date}</strong>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    {b.createdAt ? new Date(b.createdAt).toLocaleTimeString('en-IN') : ''}
+                  </div>
+                </div>
+                <button className="btn btn-secondary" style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                  onClick={() => handleRestoreBackup(b.date)}>
+                  Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Trash bin */}
+        <div style={{ padding: '0.85rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
+          <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>🗑 Trash bin ({trash.length})</h4>
+          {loading && trash.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading…</p>}
+          {!loading && trash.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No deleted invoices. Anything you delete lands here for 30 days.</p>}
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {trash.map(bill => (
+              <div key={bill.id} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '0.4rem 0.6rem', marginBottom: '0.25rem',
+                background: 'var(--card)', borderRadius: 4, fontSize: '0.82rem',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong>{bill.invoiceNumber}</strong>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {bill.clientName} · deleted {bill._trashedAt ? new Date(bill._trashedAt).toLocaleDateString('en-IN') : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem' }}
+                    onClick={() => handleRestoreTrash(bill.id)}>Restore</button>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', color: '#dc2626', borderColor: '#fca5a5' }}
+                    onClick={() => handlePurgeTrash(bill.id)}>Delete forever</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

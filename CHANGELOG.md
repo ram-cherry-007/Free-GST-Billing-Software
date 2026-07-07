@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.5] — 2026-04-30
+
+**"Business Intelligence + Safety Net"** — new Reports tabs, automatic
+daily backups, and a Trash Bin for deleted invoices.
+
+### Added — 📊 Reports: Client Analytics tab
+
+Three views of your customer base:
+
+- **🏆 Top clients by revenue** (top 10) — who's your biggest customer?
+- **⚠️ Highest outstanding / worst payers** (top 10) — who owes you most?
+- **📊 All clients breakdown** — every client with invoice count · revenue · paid · outstanding · last invoice date
+
+Sortable table. Percent outstanding column highlights payment risk.
+
+### Added — 📦 Reports: Product Performance tab
+
+Three views of your product catalog performance:
+
+- **💰 Top revenue producers** (top 10) — best sellers
+- **📦 Most units sold** (top 10) — most popular by volume
+- **📋 All products breakdown** — every product with qty sold · revenue · avg rate · transactions · last sold date
+
+Identifies your bread-and-butter products at a glance.
+
+### Added — 💾 Automatic daily backups
+
+Server-side cron runs at boot + every 24h:
+
+- Snapshots every file in `data/` (except `backups/` + `trash/` themselves) to `data/backups/YYYY-MM-DD/`
+- **Retention**: keeps the last **30 days**, auto-purges older
+- **Manual "Backup now"** button in Settings if you want an ad-hoc snapshot before a big change
+
+### Added — 🗑 Trash Bin for deleted invoices
+
+`DELETE /api/bills/:id` now **soft-deletes** — moves the file to `data/trash/` instead of unlinking. Users have **30 days** to change their mind.
+
+Trash Bin UI in Settings:
+- Lists all trashed invoices with client name + deletion date
+- **Restore** button — puts the invoice back
+- **Delete forever** button — permanent purge
+
+Auto-purge removes any trashed item >30 days old.
+
+`DELETE /api/bills/:id?permanent=1` skips trash for cases where you want to delete forever (Bulk delete offers this option).
+
+### Backend endpoints added
+
+- `GET /api/backups` — list available backups
+- `POST /api/backups/:date/restore` — restore an entire backup
+- `POST /api/backups/now` — trigger immediate backup
+- `GET /api/trash` — list soft-deleted invoices
+- `POST /api/trash/:id/restore` — restore one
+- `DELETE /api/trash/:id` — purge one
+
+All endpoints validate paths + return simple JSON errors on failure.
+
+### Backward compatibility
+
+- Existing installs get their first backup within 5 seconds of boot (staggered from the recurring auto-fire)
+- No existing bills or data are moved on upgrade
+- Trash bin starts empty
+- `data/backups/` and `data/trash/` auto-created if missing
+- Bulk delete on Dashboard still uses soft-delete by default — legacy hard-delete via `?permanent=1`
+
+---
+
 ## [1.9.4] — 2026-04-30
 
 **"Beyond print" polish** — dynamic control extended to Dashboard,

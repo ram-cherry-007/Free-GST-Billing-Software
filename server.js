@@ -121,9 +121,24 @@ app.post('/api/bills', (req, res) => {
 });
 
 app.delete('/api/bills/:id', (req, res) => {
-  const filePath = path.join(DATA_DIR, 'bills', safeFileName(req.params.id) + '.json');
-  deleteFile(filePath);
-  res.json({ success: true });
+  // v1.9.5 — soft delete: move to data/trash/ instead of unlinking so
+  // users can restore within 30 days. Query ?permanent=1 skips trash and
+  // deletes forever (used by the Trash bin UI's "Delete forever" action).
+  const fname = safeFileName(req.params.id) + '.json';
+  const filePath = path.join(DATA_DIR, 'bills', fname);
+  if (!fs.existsSync(filePath)) return res.json({ success: true });
+  if (req.query.permanent === '1') {
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    return res.json({ success: true, permanent: true });
+  }
+  try {
+    const trashDir = path.join(DATA_DIR, 'trash');
+    if (!fs.existsSync(trashDir)) fs.mkdirSync(trashDir, { recursive: true });
+    fs.renameSync(filePath, path.join(trashDir, fname));
+    res.json({ success: true, trashed: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ========================
@@ -970,3 +985,160 @@ startServer(STARTING_PORT);
 // for users whose server stays up >24h.
 setTimeout(processDueRecurring, 3000);
 setInterval(processDueRecurring, 24 * 60 * 60 * 1000);
+
+// ============================================================
+// v1.9.5 — Automatic daily backup + retention (keep last 30 days).
+// Runs at boot + every 24h. Snapshots data/ files (excluding backups/
+// itself and node_modules) into data/backups/YYYY-MM-DD/.
+// User can restore any snapshot via the Backup Management UI.
+// ============================================================
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+const TRASH_DIR = path.join(DATA_DIR, 'trash');
+function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
+
+function runDailyBackup() {
+  try {
+    ensureDir(BACKUPS_DIR);
+    const today = new Date().toISOString().split('T')[0];
+    const target = path.join(BACKUPS_DIR, today);
+    if (fs.existsSync(target)) return; // already backed up today
+
+    ensureDir(target);
+    // Copy each top-level file/dir in DATA_DIR except the backups + trash dir themselves
+    const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === 'backups' || entry.name === 'trash') continue;
+      const src = path.join(DATA_DIR, entry.name);
+      const dst = path.join(target, entry.name);
+      if (entry.isDirectory()) {
+        copyDirRecursive(src, dst);
+      } else {
+        fs.copyFileSync(src, dst);
+      }
+    }
+    console.log(`[backup] Daily snapshot saved: ${target}`);
+
+    // Retention: keep last 30 backups only
+    const all = fs.readdirSync(BACKUPS_DIR).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
+    while (all.length > 30) {
+      const oldest = all.shift();
+      const oldestPath = path.join(BACKUPS_DIR, oldest);
+      try { fs.rmSync(oldestPath, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  } catch (err) {
+    console.warn('[backup] Daily backup failed:', err.message);
+  }
+}
+
+function copyDirRecursive(src, dst) {
+  if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dst, entry.name);
+    if (entry.isDirectory()) copyDirRecursive(s, d);
+    else fs.copyFileSync(s, d);
+  }
+}
+
+setTimeout(runDailyBackup, 5000);
+setInterval(runDailyBackup, 24 * 60 * 60 * 1000);
+
+// Backup management endpoints
+app.get('/api/backups', (req, res) => {
+  try {
+    ensureDir(BACKUPS_DIR);
+    const list = fs.readdirSync(BACKUPS_DIR)
+      .filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n))
+      .sort().reverse()
+      .map(name => {
+        const stat = fs.statSync(path.join(BACKUPS_DIR, name));
+        return { date: name, createdAt: stat.mtime.toISOString() };
+      });
+    res.json(list);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/backups/:date/restore', (req, res) => {
+  try {
+    const backupDir = path.join(BACKUPS_DIR, req.params.date);
+    if (!fs.existsSync(backupDir)) return res.status(404).json({ error: 'Backup not found' });
+    // Copy every file/dir in the backup back to DATA_DIR (overwrites)
+    const entries = fs.readdirSync(backupDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const src = path.join(backupDir, entry.name);
+      const dst = path.join(DATA_DIR, entry.name);
+      if (entry.isDirectory()) {
+        if (fs.existsSync(dst)) fs.rmSync(dst, { recursive: true, force: true });
+        copyDirRecursive(src, dst);
+      } else {
+        fs.copyFileSync(src, dst);
+      }
+    }
+    res.json({ success: true, restored: req.params.date });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/backups/now', (req, res) => {
+  runDailyBackup();
+  res.json({ success: true });
+});
+
+// ---- Trash bin (soft delete for invoices) --------------------------------
+// v1.9.5 — DELETE /api/bills/:id now moves the file to data/trash/ instead
+// of unlinking. Users can restore within 30 days. Purge removes forever.
+ensureDir(TRASH_DIR);
+
+app.get('/api/trash', (req, res) => {
+  try {
+    ensureDir(TRASH_DIR);
+    const files = fs.readdirSync(TRASH_DIR)
+      .filter(n => n.endsWith('.json'))
+      .map(name => {
+        try {
+          const p = path.join(TRASH_DIR, name);
+          const bill = readJSON(p, null);
+          const stat = fs.statSync(p);
+          return bill ? { ...bill, _trashedAt: stat.mtime.toISOString() } : null;
+        } catch { return null; }
+      })
+      .filter(Boolean);
+    res.json(files);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/trash/:id/restore', (req, res) => {
+  try {
+    const fname = safeFileName(req.params.id) + '.json';
+    const trashPath = path.join(TRASH_DIR, fname);
+    const billsPath = path.join(DATA_DIR, 'bills', fname);
+    if (!fs.existsSync(trashPath)) return res.status(404).json({ error: 'Not in trash' });
+    fs.renameSync(trashPath, billsPath);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/trash/:id', (req, res) => {
+  try {
+    const fname = safeFileName(req.params.id) + '.json';
+    const trashPath = path.join(TRASH_DIR, fname);
+    if (fs.existsSync(trashPath)) fs.unlinkSync(trashPath);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Purge old trash items (>30 days) — runs daily alongside backup
+function purgeOldTrash() {
+  try {
+    ensureDir(TRASH_DIR);
+    const now = Date.now();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    for (const name of fs.readdirSync(TRASH_DIR)) {
+      const p = path.join(TRASH_DIR, name);
+      const stat = fs.statSync(p);
+      if (now - stat.mtime.getTime() > thirtyDays) {
+        try { fs.unlinkSync(p); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
+}
+setInterval(purgeOldTrash, 24 * 60 * 60 * 1000);
