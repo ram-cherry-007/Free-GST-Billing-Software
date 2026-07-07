@@ -1060,13 +1060,40 @@ app.get('/api/backups', (req, res) => {
 
 app.post('/api/backups/:date/restore', (req, res) => {
   try {
-    const backupDir = path.join(BACKUPS_DIR, req.params.date);
+    // v1.9.5.1 — Path traversal defense. The :date param is user-controlled
+    // via URL, so a value like `../../etc` would resolve backupDir outside
+    // BACKUPS_DIR and the restore loop would then copy that content over
+    // the top of DATA_DIR — an arbitrary-file-overwrite primitive on the
+    // local filesystem. Two layers of defense:
+    //   1. Format check: must be YYYY-MM-DD (only shape ever written by
+    //      runDailyBackup + only shape listed by GET /api/backups)
+    //   2. Resolved-path check: even if regex allowed something exotic,
+    //      the resolved absolute path must live under BACKUPS_DIR
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid backup date format' });
+    }
+    const backupDir = path.join(BACKUPS_DIR, date);
+    const resolved = path.resolve(backupDir);
+    const backupsRoot = path.resolve(BACKUPS_DIR);
+    if (resolved !== backupsRoot && !resolved.startsWith(backupsRoot + path.sep)) {
+      return res.status(400).json({ error: 'Invalid backup path' });
+    }
     if (!fs.existsSync(backupDir)) return res.status(404).json({ error: 'Backup not found' });
-    // Copy every file/dir in the backup back to DATA_DIR (overwrites)
+    // Copy every file/dir in the backup back to DATA_DIR (overwrites).
+    // We ALSO validate each entry's destination stays under DATA_DIR so a
+    // hypothetical malicious backup dir contents (e.g. one containing a
+    // symlink to /etc) can't smuggle writes elsewhere. Symlinks are
+    // followed by copyFileSync/copyDirRecursive on some platforms.
+    const dataRoot = path.resolve(DATA_DIR);
     const entries = fs.readdirSync(backupDir, { withFileTypes: true });
     for (const entry of entries) {
       const src = path.join(backupDir, entry.name);
       const dst = path.join(DATA_DIR, entry.name);
+      const dstResolved = path.resolve(dst);
+      if (!dstResolved.startsWith(dataRoot + path.sep) && dstResolved !== dataRoot) {
+        continue; // skip suspicious entry names like '..' or absolute paths
+      }
       if (entry.isDirectory()) {
         if (fs.existsSync(dst)) fs.rmSync(dst, { recursive: true, force: true });
         copyDirRecursive(src, dst);
@@ -1074,7 +1101,7 @@ app.post('/api/backups/:date/restore', (req, res) => {
         fs.copyFileSync(src, dst);
       }
     }
-    res.json({ success: true, restored: req.params.date });
+    res.json({ success: true, restored: date });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
