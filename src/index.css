@@ -1141,6 +1141,37 @@ textarea.form-input { resize: vertical; min-height: 60px; }
    getPaperSize() so PDF captures at the right physical dimensions. These
    rules add layout adjustments for the compact formats. */
 
+/* A4 Landscape — 297 × 210 mm. Same styles as portrait A4 but wider.
+   No special adjustments needed — the invoice-preview-container gets its
+   width set inline (297mm) from getPaperSize, and existing layout flexes. */
+.paper-a4-landscape.invoice-preview-container {
+  min-height: 210mm;
+}
+
+/* A5 Landscape — 210 × 148 mm. Same width as A4 portrait so full-width
+   layouts fit; height is halved so we drop the min-height and shrink
+   some vertical padding to keep content on ONE page. Users print two
+   invoices per A4 sheet with this. */
+.paper-a5-landscape.invoice-preview-container {
+  min-height: 148mm;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.paper-a5-landscape h1 { font-size: 1.3rem !important; }
+.paper-a5-landscape h2 { font-size: 1.1rem !important; }
+.paper-a5-landscape table { font-size: 10.5px !important; }
+.paper-a5-landscape th, .paper-a5-landscape td { padding: 3px 4px !important; }
+.paper-a5-landscape .invoice-header-modern,
+.paper-a5-landscape .invoice-header-classic,
+.paper-a5-landscape .invoice-header-minimal { padding: 10px 20px !important; }
+.paper-a5-landscape .invoice-section,
+.paper-a5-landscape .invoice-block,
+.paper-a5-landscape .invoice-footer,
+.paper-a5-landscape .totals-block { padding: 6px 14px !important; }
+.paper-a5-landscape .invoice-logo,
+.paper-a5-landscape img[alt="logo"],
+.paper-a5-landscape img[alt="signature"] { max-height: 40px !important; }
+
 /* A5 — half a sheet. Layout scales proportionally: everything ~70% of A4
    size so it fits inside 148mm without pushing content off the edge. The
    InvoicePreview has inline styles (padding, margins in rem) that we

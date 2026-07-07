@@ -98,10 +98,20 @@ const DEFAULT_OPTIONS = {
   showItemQty: true,
   showRoundOff: false,
   invoiceMode: 'goods',    // 'goods' | 'services' | 'mixed' — drives default unit + dropdown filter
-  // Paper / print size (v1.8.1). 'a4' | 'a5' | 'thermal80' | 'thermal58'.
-  // Thermal formats switch InvoicePreview to a compact single-column layout
-  // suitable for 80mm / 58mm POS printers; A5 is a smaller two-column sheet.
+  // Paper / print size (v1.8.1+). See PAPER_SIZES in utils.js.
+  //   Sheet: 'a4' | 'a4Landscape' | 'a5' | 'a5Landscape'
+  //   Thermal: 'thermal80' | 'thermal58'
   paperSize: 'a4',
+  // Thermal-only settings (v1.8.3) — only apply when paperSize starts with
+  // 'thermal'. Left at defaults for sheet formats (they're ignored).
+  //   thermalFontSize: 'small' | 'medium' (default) | 'large'
+  //   thermalCompact: false → include address/HSN/rate line per item
+  //                   true  → compact mode, shorter format
+  //   thermalCutMark: true  → adds "----- cut here -----" at end for
+  //                          auto-cutter thermal printers
+  thermalFontSize: 'medium',
+  thermalCompact: false,
+  thermalCutMark: true,
   recurring: null,         // null OR { enabled, frequency, interval, nextDate, endMode, endDate, maxOccurrences }
   showCess: false,         // when true, exposes per-line Cess % input (India-only)
   reverseCharge: false,    // when true, GST is paid by the recipient (Section 9(3)/9(4))
@@ -977,7 +987,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     // Thermal formats use a tall single-column layout — the InvoicePreview
     // component branches on options.paperSize CSS class to render compact.
     const paperCfg = getPaperSize(invoiceOptions.paperSize);
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: paperCfg.jsPdfFormat, compress: true });
+    // jsPDF orientation defaults to 'portrait' if the paper config doesn't
+    // specify it, so pre-v1.8.3 saved bills keep rendering portrait.
+    const pdf = new jsPDF({
+      orientation: paperCfg.jsPdfOrientation || 'portrait',
+      unit: 'mm',
+      format: paperCfg.jsPdfFormat,
+      compress: true,
+    });
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfPageHeight = pdf.internal.pageSize.getHeight();
     const extraPages = printRef.current.querySelectorAll('[data-pdf-page]');
@@ -1574,6 +1591,54 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                         <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.3rem 0 0' }}>
                           {getPaperSize(invoiceOptions.paperSize).hint}
                         </p>
+
+                        {/* Thermal-only extra settings — only shown when a
+                            thermal paper size is picked. Each control maps
+                            to an invoiceOptions field consumed by the
+                            thermal render path in InvoicePreview. */}
+                        {getPaperSize(invoiceOptions.paperSize).kind === 'thermal' && (
+                          <div style={{ marginTop: '0.6rem', padding: '0.6rem', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>
+                              Thermal printer settings
+                            </div>
+
+                            <label style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.35rem' }}>
+                              <span style={{ fontWeight: 600 }}>Font size</span>
+                              <select className="form-input"
+                                style={{ fontSize: '0.78rem', marginTop: 2 }}
+                                value={invoiceOptions.thermalFontSize || 'medium'}
+                                onChange={e => setInvoiceOptions(prev => ({ ...prev, thermalFontSize: e.target.value }))}>
+                                <option value="small">Small (fits more per page)</option>
+                                <option value="medium">Medium (recommended)</option>
+                                <option value="large">Large (easier to read)</option>
+                              </select>
+                            </label>
+
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.78rem', marginTop: '0.5rem', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={!!invoiceOptions.thermalCompact}
+                                onChange={e => setInvoiceOptions(prev => ({ ...prev, thermalCompact: e.target.checked }))}
+                                style={{ marginTop: 2, accentColor: 'var(--primary)' }} />
+                              <span>
+                                <strong>Compact mode</strong>
+                                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                  Skip HSN + per-item rate line; use two-line item rows. Saves paper on long orders.
+                                </span>
+                              </span>
+                            </label>
+
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.78rem', marginTop: '0.4rem', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={invoiceOptions.thermalCutMark !== false}
+                                onChange={e => setInvoiceOptions(prev => ({ ...prev, thermalCutMark: e.target.checked }))}
+                                style={{ marginTop: 2, accentColor: 'var(--primary)' }} />
+                              <span>
+                                <strong>Cut mark at bottom</strong>
+                                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                  Adds "— cut here —" line for auto-cutter thermal printers. Turn off if your printer feeds paper automatically.
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+                        )}
                       </div>
                     );
                   }

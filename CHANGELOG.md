@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.3] — 2026-04-30
+
+Direct user feedback on v1.8.2 — thermal print faded, A5 needed to be
+landscape, Client Statement PDF still not right. Plus a feature request:
+thermal-specific settings in Customize.
+
+### Fixed — Thermal print output no longer faded / cut off
+
+User's photo showed HSN, per-item rate line, and dividers all rendering
+as very faint on the actual thermal printer. Also the "Amount" header
+was being cut to just "A" because the item table column widths didn't
+account for real thermal paper printable areas (usually 72mm on 80mm
+rolls after margins).
+
+**Full rewrite of the thermal render**:
+
+- **Every text element forced to pure black `#000`** — no more `color: '#555'`
+  gray tones that vanish on thermal
+- **Bolder base font weight (500 minimum, 700 for headers)** — thermal
+  print heads need denser glyphs for legibility
+- **Item name gets full row width; qty × rate on separate line** — 3-word
+  product names like "LETTERPAD A4 EXCEL BOND" no longer wrap awkwardly
+- **Column headers `Item | Amount`** with 58mm rolls dropping to `Item | Amt`
+- **Dashed dividers use solid black 1px lines** — thermal printers render
+  crisp black much better than dotted grey
+- **Logo + UPI QR get `filter: grayscale(1) contrast(1.5)`** so faded
+  colour prints crisp black
+- **Currency prefix `Rs.` instead of `₹`** — Courier New / thermal fonts
+  can't render the Rupee glyph
+
+### Added — Thermal-specific settings in Customize panel
+
+New "Thermal printer settings" panel appears in the Customize sidebar
+**only when a thermal paper size is selected**. Three controls:
+
+- **Font size**: Small (fits more per page) / Medium (default) / Large
+  (easier to read for older customers)
+- **Compact mode**: Skip HSN + per-item rate line; use two-line item
+  rows. Saves paper on long orders.
+- **Cut mark**: Adds "— ✂ cut here ✂ —" at the very bottom for
+  auto-cutter thermal printers. Turn off if your printer auto-feeds.
+
+All three persisted per-invoice in `invoiceOptions.thermalFontSize` /
+`thermalCompact` / `thermalCutMark`. Backward-compat: pre-v1.8.3 bills
+default to Medium / Compact off / Cut mark on.
+
+### Added — A4 Landscape & A5 Landscape paper sizes
+
+User wanted A5 in **landscape orientation** — popular in Indian retail
+/ wholesale because you can print two invoices per A4 sheet (saving
+paper). Added both A4 Landscape (297 × 210 mm) and A5 Landscape
+(210 × 148 mm).
+
+- `jsPdfOrientation` field added to each PAPER_SIZES entry
+- PDF generation now respects orientation (was hardcoded portrait)
+- InvoicePreview CSS handles landscape variants — full A4 width, half
+  A4 height, tighter vertical padding to fit content on one page
+
+Existing bills default to `a4` (portrait) so no visual change on
+upgrade.
+
+### Fixed — Client Statement PDF now proper Indian ledger format
+
+Redesigned to match standard Indian business-statement conventions:
+
+- Columns: **Date | Particulars | Debit | Credit | Balance**
+  (was: Date | Invoice # | Type | Amount | Paid | Balance)
+- **Opening Balance row** at the top (₹0.00 by default)
+- **Balance shows "Dr" suffix** — Indian accounting convention
+- **Payment received against invoice** appears as its own italicised
+  Credit row directly below the invoice row, keeping the trail clear
+- **Closing Balance** shows `Dr` (client owes) or `Cr / Nil`
+  (nothing owed / advance received)
+- **Signature block** ("Authorised Signatory") + business name
+  right-aligned at the bottom
+- Legend: "Dr = amount receivable · Cr = amount owed / paid"
+- Reviewer note: "Please review and confirm within 7 days"
+
+CAs and accountants used to Tally / Marg / BUSY output should
+recognise this layout immediately.
+
+---
+
 ## [1.8.2] — 2026-04-30
 
 Hotfix release addressing five user-reported bugs from v1.8.0-v1.8.1

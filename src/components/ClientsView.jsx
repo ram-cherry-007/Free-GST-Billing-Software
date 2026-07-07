@@ -157,57 +157,70 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
       doc.setTextColor(0);
       y += 22;
 
-      // ============== TRANSACTION TABLE ==============
-      // Column layout — right edges. All in mm, from marginL=15 to marginR=195 (width 180).
+      // ============== LEDGER TABLE (Indian Dr/Cr convention) ==============
+      // Columns follow standard Indian business-statement format:
+      //   Date | Particulars (invoice # + type) | Debit | Credit | Balance
+      // Debit  = amount charged to the client (increases receivable)
+      // Credit = payment received / credit note (decreases receivable)
+      // Balance = running Dr - Cr
       const col = {
-        dateEnd: 40,       // Date left-aligned starting at 17 → ends ~40
-        invEnd: 75,        // Invoice # ends ~75
-        typeEnd: 110,      // Type ends ~110
-        amountEnd: 138,    // Amount right-aligned
-        paidEnd: 165,      // Paid right-aligned
-        balanceEnd: marginR - 2, // Balance right-aligned = 193
+        dateEnd: 42,        // Date column: 15 to 42 (27mm)
+        particEnd: 105,     // Particulars: 42 to 105 (63mm)
+        debitEnd: 140,      // Debit right-aligned at 140
+        creditEnd: 168,     // Credit right-aligned at 168
+        balanceEnd: marginR - 2, // Balance right-aligned at 193
       };
 
-      // Table header
+      // Header band
       doc.setFillColor(30, 64, 175);
-      doc.rect(marginL, y, tableW, 8, 'F');
+      doc.rect(marginL, y, tableW, 9, 'F');
       doc.setTextColor(255); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-      doc.text('Date', marginL + 2, y + 5.5);
-      doc.text('Invoice #', col.dateEnd + 2, y + 5.5);
-      doc.text('Type', col.invEnd + 2, y + 5.5);
-      doc.text('Amount', col.amountEnd, y + 5.5, { align: 'right' });
-      doc.text('Paid', col.paidEnd, y + 5.5, { align: 'right' });
-      doc.text('Balance', col.balanceEnd, y + 5.5, { align: 'right' });
+      doc.text('Date', marginL + 2, y + 6);
+      doc.text('Particulars', col.dateEnd + 2, y + 6);
+      doc.text('Debit', col.debitEnd, y + 6, { align: 'right' });
+      doc.text('Credit', col.creditEnd, y + 6, { align: 'right' });
+      doc.text('Balance', col.balanceEnd, y + 6, { align: 'right' });
       doc.setTextColor(0);
-      y += 10;
+      y += 11;
+
+      // Opening balance row
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(80);
+      doc.text('Opening Balance', col.dateEnd + 2, y);
+      doc.text(fmt(0), col.balanceEnd, y, { align: 'right' });
+      doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'normal');
+      y += 6;
 
       // Rows
       let runningBalance = 0;
       const sortedBills = clientBills.slice().sort((a, b) => new Date(a.invoiceDate) - new Date(b.invoiceDate));
+
+      const drawHeader = () => {
+        doc.setFillColor(30, 64, 175);
+        doc.rect(marginL, y, tableW, 9, 'F');
+        doc.setTextColor(255); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+        doc.text('Date', marginL + 2, y + 6);
+        doc.text('Particulars', col.dateEnd + 2, y + 6);
+        doc.text('Debit', col.debitEnd, y + 6, { align: 'right' });
+        doc.text('Credit', col.creditEnd, y + 6, { align: 'right' });
+        doc.text('Balance', col.balanceEnd, y + 6, { align: 'right' });
+        doc.setTextColor(0);
+        y += 11;
+      };
+
       for (let i = 0; i < sortedBills.length; i++) {
         const bill = sortedBills[i];
         const isCreditNote = bill.invoiceType === 'credit-note';
         const amount = Number(bill.totalAmount) || 0;
         const paid = Number(bill.paidAmount) || 0;
-        const effectiveAmount = isCreditNote ? -amount : amount;
-        const effectivePaid = isCreditNote ? 0 : paid;
-        runningBalance += effectiveAmount - effectivePaid;
+        // Compute Dr / Cr for this row
+        //   Tax invoice: Dr = amount, Cr = 0
+        //   Credit note: Dr = 0, Cr = amount
+        //   Then if paid amount > 0 we add ANOTHER row for the payment as Cr
+        const debit = isCreditNote ? 0 : amount;
+        const credit = isCreditNote ? amount : 0;
 
         // Page break with header repeat
-        if (y > 270) {
-          doc.addPage(); y = 20;
-          doc.setFillColor(30, 64, 175);
-          doc.rect(marginL, y, tableW, 8, 'F');
-          doc.setTextColor(255); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-          doc.text('Date', marginL + 2, y + 5.5);
-          doc.text('Invoice #', col.dateEnd + 2, y + 5.5);
-          doc.text('Type', col.invEnd + 2, y + 5.5);
-          doc.text('Amount', col.amountEnd, y + 5.5, { align: 'right' });
-          doc.text('Paid', col.paidEnd, y + 5.5, { align: 'right' });
-          doc.text('Balance', col.balanceEnd, y + 5.5, { align: 'right' });
-          doc.setTextColor(0);
-          y += 10;
-        }
+        if (y > 260) { doc.addPage(); y = 20; drawHeader(); }
 
         // Alt row shading
         if (i % 2 === 1) {
@@ -218,43 +231,63 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(15, 23, 42);
         // Date
         doc.text(new Date(bill.invoiceDate).toLocaleDateString('en-IN'), marginL + 2, y);
-        // Invoice #
-        const invText = doc.splitTextToSize(bill.invoiceNumber || '', col.invEnd - col.dateEnd - 4);
-        doc.text(invText[0] || '', col.dateEnd + 2, y);
-        // Type (truncate if too long)
+        // Particulars: invoice # + type label
         const typeLabel = INVOICE_TYPES[bill.invoiceType]?.label || bill.invoiceType || '';
-        const typeText = doc.splitTextToSize(typeLabel, col.typeEnd - col.invEnd - 4);
-        doc.text(typeText[0] || '', col.invEnd + 2, y);
-        // Amount (- for credit note)
-        doc.text((isCreditNote ? '- ' : '') + fmt(amount), col.amountEnd, y, { align: 'right' });
-        // Paid
-        doc.text(fmt(paid), col.paidEnd, y, { align: 'right' });
-        // Balance (colour + bold if outstanding)
-        if (runningBalance > 0.01) {
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(220, 38, 38);
-        } else {
-          doc.setTextColor(5, 150, 105);
-        }
-        doc.text(fmt(runningBalance), col.balanceEnd, y, { align: 'right' });
+        const particulars = `${bill.invoiceNumber || ''} · ${typeLabel}`;
+        const particText = doc.splitTextToSize(particulars, col.particEnd - col.dateEnd - 4);
+        doc.text(particText[0] || '', col.dateEnd + 2, y);
+        // Debit
+        doc.text(debit > 0 ? fmt(debit) : '-', col.debitEnd, y, { align: 'right' });
+        // Credit
+        doc.text(credit > 0 ? fmt(credit) : '-', col.creditEnd, y, { align: 'right' });
+        // Balance
+        runningBalance += debit - credit;
+        if (runningBalance > 0.01) { doc.setFont('helvetica', 'bold'); doc.setTextColor(220, 38, 38); }
+        else { doc.setTextColor(5, 150, 105); }
+        doc.text(fmt(runningBalance) + ' Dr', col.balanceEnd, y, { align: 'right' });
         doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'normal');
         y += 6;
+
+        // Add a follow-on row for the payment if any
+        if (paid > 0.01 && !isCreditNote) {
+          if (y > 265) { doc.addPage(); y = 20; drawHeader(); }
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(80);
+          doc.text('   Payment recd against above', col.dateEnd + 2, y);
+          doc.text(fmt(paid), col.creditEnd, y, { align: 'right' });
+          runningBalance -= paid;
+          if (runningBalance > 0.01) { doc.setFont('helvetica', 'bold'); doc.setTextColor(220, 38, 38); }
+          else { doc.setFont('helvetica', 'normal'); doc.setTextColor(5, 150, 105); }
+          doc.text(fmt(runningBalance) + ' Dr', col.balanceEnd, y, { align: 'right' });
+          doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'normal');
+          y += 6;
+        }
       }
 
       // ============== CLOSING BALANCE ==============
-      y += 4;
-      doc.setDrawColor(30, 64, 175); doc.setLineWidth(0.5);
+      y += 3;
+      doc.setDrawColor(30, 64, 175); doc.setLineWidth(0.6);
       doc.line(marginL, y, marginR, y); y += 8;
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold');
-      doc.text('CLOSING BALANCE', col.paidEnd, y, { align: 'right' });
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(15, 23, 42);
+      doc.text('CLOSING BALANCE', col.creditEnd, y, { align: 'right' });
       doc.setFontSize(12);
       if (runningBalance > 0.01) doc.setTextColor(220, 38, 38); else doc.setTextColor(5, 150, 105);
-      doc.text(fmt(runningBalance), col.balanceEnd, y, { align: 'right' });
+      doc.text(fmt(Math.abs(runningBalance)) + (runningBalance > 0.01 ? ' Dr' : ' Cr / Nil'), col.balanceEnd, y, { align: 'right' });
       doc.setTextColor(0);
+      y += 10;
+      doc.setFontSize(7.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(100);
+      doc.text('Dr = amount receivable from client  ·  Cr = amount owed to client / paid', marginL, y);
 
-      // ============== FOOTER ==============
+      // ============== SIGNATURE + FOOTER ==============
+      // Signature block (right-aligned)
+      y = Math.max(y + 15, 260);
+      doc.setDrawColor(150); doc.line(marginR - 55, y, marginR - 2, y);
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(80);
+      doc.text('Authorised Signatory', marginR - 28, y + 4, { align: 'center' });
+      doc.text(profileForStatement?.businessName || '', marginR - 28, y + 8, { align: 'center' });
+
       doc.setFontSize(7.5); doc.setFont('helvetica', 'italic'); doc.setTextColor(120);
-      doc.text('Generated by Free GST Billing Software · Verify against your books before payment.', pageW / 2, 290, { align: 'center' });
+      doc.text('Please review and confirm within 7 days. This is a computer-generated statement — no signature required.', pageW / 2, 285, { align: 'center' });
+      doc.text('Generated by Free GST Billing Software', pageW / 2, 290, { align: 'center' });
 
       doc.save(`statement-${clientName.replace(/[^\w]+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`);
       toast('Statement PDF generated', 'success');

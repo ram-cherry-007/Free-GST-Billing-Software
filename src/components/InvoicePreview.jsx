@@ -289,111 +289,146 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // opt() / totals / items closures. Escape-hatch: user can switch back to
   // A4/A5 any time in Customize.
   if (isThermal) {
+    // v1.8.3 thermal rewrite: pure black text, bolder fonts, tighter columns.
+    // v1.8.3.x adds user-configurable settings via Customize panel:
+    //   thermalFontSize: 'small' | 'medium' | 'large'
+    //   thermalCompact:  boolean — hide HSN + per-item rate line
+    //   thermalCutMark:  boolean — bottom "cut here" mark for auto-cutters
     const invoiceNum = details?.invoiceNumber || '';
     const invoiceDate = details?.invoiceDate ? new Date(details.invoiceDate).toLocaleDateString('en-IN') : '';
     const sellerCurrency = getCountryConfig(profile?.country).currency;
-    const currencySymbol = sellerCurrency === 'INR' ? '₹' : sellerCurrency;
+    const currencySymbol = sellerCurrency === 'INR' ? 'Rs.' : sellerCurrency;
     const showRoundOff = opt('showRoundOff', false);
     const showQR = opt('showUPI') && paperCfg.widthMm >= 80 && qrDataUrl;
+    const isNarrow = paperCfg.widthMm < 80;
+    // User settings (v1.8.3): fall back to sensible defaults if the bill
+    // was created pre-v1.8.3 (options.thermal* undefined).
+    const thermalFontSize = options.thermalFontSize || 'medium';
+    const thermalCompact = !!options.thermalCompact;
+    const thermalCutMark = options.thermalCutMark !== false;
+    const fontSizeBase = thermalFontSize === 'small' ? (isNarrow ? '8.5px' : '10px')
+                       : thermalFontSize === 'large' ? (isNarrow ? '10.5px' : '12.5px')
+                       : (isNarrow ? '9.5px' : '11px'); // medium (default)
+    const dashLine = { borderBottom: '1px solid #000', borderTop: 'none' };
+    const solidLine = { borderBottom: '2px solid #000' };
+
     return (
       <div
         className={`invoice-preview-container ${paperCfg.cssClass} paper-thermal`}
-        ref={ref} id="invoice-preview" style={containerStyle}>
-        <div style={{ padding: '6px 4px', textAlign: 'center', borderBottom: '1px dashed #000' }}>
-          {profile?.logo && <img src={profile.logo} alt="" style={{ maxHeight: 40, marginBottom: 4 }} />}
-          <div style={{ fontWeight: 700, fontSize: '1.05em' }}>{profile?.businessName || ''}</div>
-          {profile?.address && <div style={{ fontSize: '0.85em' }}>{profile.address}</div>}
-          {(profile?.city || profile?.state || profile?.pin) && <div style={{ fontSize: '0.85em' }}>{[profile?.city, profile?.state, profile?.pin].filter(Boolean).join(', ')}</div>}
-          {profile?.gstin && <div style={{ fontSize: '0.85em' }}>GSTIN: {profile.gstin}</div>}
-          {profile?.phone && <div style={{ fontSize: '0.85em' }}>Ph: {profile.phone}</div>}
+        ref={ref} id="invoice-preview"
+        style={{ ...containerStyle, color: '#000', background: '#fff', fontWeight: 500, fontSize: fontSizeBase }}>
+        {/* Seller block */}
+        <div style={{ padding: '8px 4px 6px', textAlign: 'center', ...dashLine, color: '#000' }}>
+          {profile?.logo && <img src={profile.logo} alt="" style={{ maxHeight: 45, marginBottom: 4, filter: 'grayscale(1) contrast(1.5)' }} />}
+          <div style={{ fontWeight: 900, fontSize: '1.15em', letterSpacing: '0.02em' }}>{(profile?.businessName || '').toUpperCase()}</div>
+          {profile?.address && <div style={{ fontSize: '0.9em' }}>{profile.address}</div>}
+          {(profile?.city || profile?.state || profile?.pin) && <div style={{ fontSize: '0.9em' }}>{[profile?.city, profile?.state, profile?.pin].filter(Boolean).join(', ')}</div>}
+          {profile?.gstin && <div style={{ fontSize: '0.9em', fontWeight: 700, marginTop: 2 }}>GSTIN: {profile.gstin}</div>}
+          {profile?.phone && <div style={{ fontSize: '0.9em' }}>Ph: {profile.phone}</div>}
         </div>
 
-        <div style={{ padding: '4px', textAlign: 'center', borderBottom: '1px dashed #000', fontWeight: 700, textTransform: 'uppercase' }}>
+        {/* Invoice type banner */}
+        <div style={{ padding: '5px 4px', textAlign: 'center', fontWeight: 900, textTransform: 'uppercase', fontSize: '1.05em', letterSpacing: '0.08em', ...dashLine }}>
           {typeConfig?.label || 'Invoice'}
         </div>
 
-        <div style={{ padding: '4px', borderBottom: '1px dashed #000', fontSize: '0.9em' }}>
-          <div><strong>#:</strong> {invoiceNum}</div>
-          <div><strong>Date:</strong> {invoiceDate}</div>
-          {client?.name && <div><strong>To:</strong> {client.name}</div>}
-          {client?.gstin && <div><strong>GSTIN:</strong> {client.gstin}</div>}
-          {client?.phone && <div><strong>Ph:</strong> {client.phone}</div>}
+        {/* Bill details */}
+        <div style={{ padding: '5px 4px', fontSize: '0.92em', ...dashLine }}>
+          <div><strong>Invoice #: </strong>{invoiceNum}</div>
+          <div><strong>Date: </strong>{invoiceDate}</div>
+          {client?.name && <div style={{ marginTop: 3 }}><strong>Bill to: </strong>{client.name}</div>}
+          {client?.gstin && <div>GSTIN: {client.gstin}</div>}
+          {client?.phone && <div>Ph: {client.phone}</div>}
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88em' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px dashed #000' }}>
-              <th style={{ textAlign: 'left', padding: '3px 4px' }}>Item</th>
-              <th style={{ textAlign: 'center', padding: '3px 2px', width: '18%' }}>Qty</th>
-              <th style={{ textAlign: 'right', padding: '3px 4px', width: '32%' }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(items || []).map((item, idx) => {
-              const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
-              return (
-                <tr key={idx} style={{ borderBottom: '1px dotted #ccc' }}>
-                  <td style={{ padding: '3px 4px' }}>
-                    <div style={{ fontWeight: 600 }}>{item.name || item.description || 'Item'}</div>
-                    {item.hsn && <div style={{ fontSize: '0.8em', color: '#555' }}>HSN {item.hsn}</div>}
-                    <div style={{ fontSize: '0.82em', color: '#555' }}>@ {currencySymbol}{(Number(item.rate) || 0).toFixed(2)} {showGST && item.taxPercent > 0 ? `+ ${item.taxPercent}%` : ''}</div>
-                  </td>
-                  <td style={{ textAlign: 'center', padding: '3px 2px' }}>{Number(item.quantity) || 0}{item.unit ? ` ${item.unit}` : ''}</td>
-                  <td style={{ textAlign: 'right', padding: '3px 4px' }}>{currencySymbol}{amount.toFixed(2)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {/* Items — each item on its own block so long names don't collide
+             with qty/amount columns. First line: item name (full width).
+             Second line: qty × rate → amount, right-aligned. */}
+        <div style={{ padding: '5px 4px', ...dashLine }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', fontWeight: 900,
+            paddingBottom: 3, marginBottom: 3, borderBottom: '1px solid #000',
+            fontSize: '0.92em', textTransform: 'uppercase',
+          }}>
+            <span>Item</span>
+            <span>{isNarrow ? 'Amt' : 'Amount'}</span>
+          </div>
+          {(items || []).map((item, idx) => {
+            const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
+            const qty = Number(item.quantity) || 0;
+            const rate = Number(item.rate) || 0;
+            const tax = showGST && item.taxPercent > 0 ? ` +${item.taxPercent}%` : '';
+            return (
+              <div key={idx} style={{ marginBottom: 5, fontSize: '0.9em' }}>
+                <div style={{ fontWeight: 700 }}>
+                  {(idx + 1) + '. ' + (item.name || item.description || 'Item')}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9em', paddingLeft: thermalCompact ? 0 : 8 }}>
+                  <span>
+                    {thermalCompact
+                      ? `${qty}${item.unit ? ' ' + item.unit : ''}`
+                      : `${qty}${item.unit ? ' ' + item.unit : ''} × ${currencySymbol}${rate.toFixed(2)}${tax}${item.hsn && !isNarrow ? '  |  HSN ' + item.hsn : ''}`}
+                  </span>
+                  <span style={{ fontWeight: 700 }}>{currencySymbol}{amount.toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
-        <div style={{ padding: '4px', borderTop: '1px dashed #000', borderBottom: '1px dashed #000', fontSize: '0.9em' }}>
+        {/* Totals */}
+        <div style={{ padding: '5px 4px', fontSize: '0.95em', ...dashLine }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>Subtotal:</span><span>{currencySymbol}{(Number(totals?.subtotal) || 0).toFixed(2)}</span>
+            <span>Subtotal</span><span>{currencySymbol}{(Number(totals?.subtotal) || 0).toFixed(2)}</span>
           </div>
           {Number(totals?.totalDiscount) > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Discount:</span><span>-{currencySymbol}{Number(totals.totalDiscount).toFixed(2)}</span>
+              <span>Discount</span><span>-{currencySymbol}{Number(totals.totalDiscount).toFixed(2)}</span>
             </div>
           )}
           {showGST && Number(totals?.cgst) > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>CGST:</span><span>{currencySymbol}{Number(totals.cgst).toFixed(2)}</span>
+              <span>CGST</span><span>{currencySymbol}{Number(totals.cgst).toFixed(2)}</span>
             </div>
           )}
           {showGST && Number(totals?.sgst) > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>SGST:</span><span>{currencySymbol}{Number(totals.sgst).toFixed(2)}</span>
+              <span>SGST</span><span>{currencySymbol}{Number(totals.sgst).toFixed(2)}</span>
             </div>
           )}
           {showGST && Number(totals?.igst) > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>IGST:</span><span>{currencySymbol}{Number(totals.igst).toFixed(2)}</span>
+              <span>IGST</span><span>{currencySymbol}{Number(totals.igst).toFixed(2)}</span>
             </div>
           )}
           {Number(totals?.cess) > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Cess:</span><span>{currencySymbol}{Number(totals.cess).toFixed(2)}</span>
+              <span>Cess</span><span>{currencySymbol}{Number(totals.cess).toFixed(2)}</span>
             </div>
           )}
           {showRoundOff && Number(totals?.roundOff) !== 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Round-off:</span><span>{Number(totals.roundOff) > 0 ? '+' : ''}{currencySymbol}{Number(totals.roundOff).toFixed(2)}</span>
+              <span>Round-off</span><span>{Number(totals.roundOff) > 0 ? '+' : ''}{currencySymbol}{Number(totals.roundOff).toFixed(2)}</span>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '1.08em', marginTop: 3, borderTop: '1px solid #000', paddingTop: 3 }}>
-            <span>TOTAL:</span><span>{currencySymbol}{(Number(totals?.total) || 0).toFixed(2)}</span>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            fontWeight: 900, fontSize: '1.15em', marginTop: 4,
+            ...solidLine, paddingTop: 4, borderBottom: '2px solid #000',
+          }}>
+            <span>TOTAL</span><span>{currencySymbol}{(Number(totals?.total) || 0).toFixed(2)}</span>
           </div>
         </div>
 
         {showAmountWords && (
-          <div style={{ padding: '4px', fontSize: '0.82em', textAlign: 'center', borderBottom: '1px dashed #000' }}>
-            <em>{amountInWords(totals?.total || 0)}</em>
+          <div style={{ padding: '5px 4px', fontSize: '0.85em', textAlign: 'center', ...dashLine, fontStyle: 'italic' }}>
+            {amountInWords(totals?.total || 0)}
           </div>
         )}
 
         {showBankDetails && (account?.bankName || profile?.bankName) && (
-          <div style={{ padding: '4px', fontSize: '0.85em', borderBottom: '1px dashed #000' }}>
-            <div style={{ fontWeight: 600 }}>Bank Details:</div>
+          <div style={{ padding: '5px 4px', fontSize: '0.9em', ...dashLine }}>
+            <div style={{ fontWeight: 900, textAlign: 'center', marginBottom: 3 }}>BANK DETAILS</div>
             <div>{account?.bankName || profile?.bankName}</div>
             {(account?.accountNumber || profile?.accountNumber) && <div>A/c: {account?.accountNumber || profile?.accountNumber}</div>}
             {(account?.ifsc || profile?.ifsc) && <div>IFSC: {account?.ifsc || profile?.ifsc}</div>}
@@ -401,22 +436,27 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         )}
 
         {showQR && (
-          <div style={{ padding: '4px', textAlign: 'center', borderBottom: '1px dashed #000' }}>
-            <img src={qrDataUrl} alt="UPI QR" style={{ width: 80, height: 80 }} />
-            <div style={{ fontSize: '0.75em' }}>Scan to pay via UPI</div>
+          <div style={{ padding: '5px 4px', textAlign: 'center', ...dashLine }}>
+            <img src={qrDataUrl} alt="UPI QR" style={{ width: 90, height: 90, filter: 'grayscale(1) contrast(2)' }} />
+            <div style={{ fontSize: '0.85em', fontWeight: 700 }}>Scan to pay via UPI</div>
           </div>
         )}
 
         {showNotes && customNotes && (
-          <div style={{ padding: '4px', fontSize: '0.82em', borderBottom: '1px dashed #000' }}
+          <div style={{ padding: '5px 4px', fontSize: '0.85em', ...dashLine }}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(customNotes) }} />
         )}
 
-        <div style={{ padding: '6px 4px', textAlign: 'center', fontSize: '0.82em' }}>
-          <div>Thank you for your business!</div>
-          {profile?.email && <div>{profile.email}</div>}
-          <div style={{ marginTop: 4, opacity: 0.65 }}>via Free GST Billing Software</div>
+        <div style={{ padding: '6px 4px 12px', textAlign: 'center', fontSize: '0.9em', fontWeight: 700 }}>
+          <div>*** Thank you for your business! ***</div>
+          {profile?.email && <div style={{ fontWeight: 500 }}>{profile.email}</div>}
         </div>
+
+        {thermalCutMark && (
+          <div style={{ padding: '8px 4px 12px', textAlign: 'center', fontSize: '0.75em', letterSpacing: '0.15em', color: '#000', fontFamily: 'monospace' }}>
+            {'- - - - -  ✂  cut here  ✂  - - - - -'}
+          </div>
+        )}
       </div>
     );
   }
