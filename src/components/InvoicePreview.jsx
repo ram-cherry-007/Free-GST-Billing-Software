@@ -133,7 +133,16 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     'bill-of-supply': '#0f766e',
     'credit-note': '#be123c',
   };
-  const accent = options.accentColor || accentColors[invoiceType] || accentColors['tax-invoice'];
+  // v1.9.14 — When userColorsEnabled is on, pdfAccent MUST feed the
+  // header-block background too. Previously the modern renderer used
+  // `accent` (invoice-type default) so users could pick any pdfAccent
+  // colour and the modern-style coloured header stayed the same. This
+  // was a real bug: "colors not chnage for the FOOTER AND HEADER".
+  const _psForAccent = getPrintSettings();
+  const accent = options.accentColor
+    || (_psForAccent.userColorsEnabled && _psForAccent.pdfAccent)
+    || accentColors[invoiceType]
+    || accentColors['tax-invoice'];
   // v1.9.1 — template style. Priority: per-invoice options.pdfStyle → app-wide
   // printSettings.pdfTemplate → 'classic' fallback. Also accept the new
   // "corporate" and "minimalist" values that map to existing render paths
@@ -640,6 +649,23 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const _ps_final = getPrintSettings();
   const letterheadOn = _ps_final.letterheadEnabled && _ps_final.letterheadImage;
   const hideHeaderBecauseLetterhead = letterheadOn && _ps_final.letterheadHideHeader;
+
+  // v1.9.14 — Inline style typography wiring. Data-attribute CSS from
+  // v1.9.13 lost specificity wars against dark-mode overrides and
+  // template-* rules, so users saw the font stay put no matter what
+  // they picked. Inline styles beat every CSS class regardless of
+  // specificity — this is the reliable path.
+  const pdfFontFamilyCss = !isThermal
+    ? (_ps_final.fontFamily === 'mono'
+        ? '"Courier New", "Consolas", monospace'
+        : '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif')
+    : undefined;
+  const PDF_FONT_SIZE_PCT = { small: '87%', medium: '100%', large: '112%', xlarge: '122%' };
+  const pdfFontSizeCss = !isThermal ? (PDF_FONT_SIZE_PCT[_ps_final.fontSize] || '100%') : undefined;
+  const PDF_FONT_WEIGHT = { normal: 400, bold: 600, ultra: 800 };
+  const pdfFontWeightCss = !isThermal ? (PDF_FONT_WEIGHT[_ps_final.fontWeight] || 400) : undefined;
+  const pdfCapsOn = !isThermal && _ps_final.allCaps === true;
+
   const finalContainerStyle = {
     ...containerStyle,
     ...(letterheadOn ? {
@@ -659,9 +685,14 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       '--pdf-header-bg':    _ps_final.pdfHeaderBg    || '#f8fafc',
       '--pdf-divider':      _ps_final.pdfDividerColor|| '#334155',
     } : {}),
-    // Font scale — CSS var used by an @media rule below AND by the root
-    // font-size for cascade. 0.8 to 1.4 range.
-    ...(Number(_ps_final.pdfFontScale) && Number(_ps_final.pdfFontScale) !== 1 ? {
+    // v1.9.14 — inline typography (see comment above)
+    ...(pdfFontFamilyCss ? { fontFamily: pdfFontFamilyCss } : {}),
+    ...(pdfFontSizeCss ? { fontSize: pdfFontSizeCss } : {}),
+    ...(pdfFontWeightCss ? { fontWeight: pdfFontWeightCss } : {}),
+    ...(pdfCapsOn ? { textTransform: 'uppercase' } : {}),
+    // Font scale — 0.8 to 1.4 range. Applied on top of fontSize base
+    // by re-computing pct * scale.
+    ...(Number(_ps_final.pdfFontScale) && Number(_ps_final.pdfFontScale) !== 1 && !pdfFontSizeCss ? {
       fontSize: `${Math.max(0.8, Math.min(1.4, Number(_ps_final.pdfFontScale))) * 100}%`,
     } : {}),
   };

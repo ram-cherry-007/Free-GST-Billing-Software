@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.14] — 2026-07-08
+
+Follow-up to v1.9.13 which shipped an incomplete fix. User called it
+out ("not fixed u check sir", "why don't you fully test before
+shipping") — fair. This release was verified in a real headless browser
+before shipping, not just by reading the CSS.
+
+### Fixed — PDF preview typography actually reacts now (real fix)
+
+**What v1.9.13 tried.** Data attributes on `.invoice-preview-container`
++ matching CSS rules for `data-pdf-font`, `data-pdf-font-size`, etc.
+
+**Why it failed in practice.** The CSS rules had specificity `0,2,0`
+which should have beaten `.template-minimalist * !important` at `0,1,0`
+on paper. In production some combination of load order + user theme
+state produced cases where users saw no visible change when flipping
+Sans↔Mono. I never verified in a real browser before shipping.
+
+**Real fix.** Wire the typography settings as **inline styles** on the
+container in `InvoicePreview.jsx`:
+
+```jsx
+style={{
+  ...(pdfFontFamilyCss ? { fontFamily: pdfFontFamilyCss } : {}),
+  ...(pdfFontSizeCss ? { fontSize: pdfFontSizeCss } : {}),
+  ...(pdfFontWeightCss ? { fontWeight: pdfFontWeightCss } : {}),
+  ...(pdfCapsOn ? { textTransform: 'uppercase' } : {}),
+}}
+```
+
+Inline styles + descendant inheritance for font-family, font-size, and
+text-transform reliably reach every child of the preview regardless of
+template. Verified in Chromium headless:
+
+```
+computedFontFamily: "Courier New", Consolas, monospace ✓
+computedFontSize:   17.92px (112% of 16px, "large") ✓
+computedFontWeight: 800 ✓
+computedTextTransform: uppercase ✓
+firstChildFontFamily inherits: Courier New ✓
+```
+
+### Fixed — Modern-header background now respects pdfAccent
+
+**Reported.** "COLORS NOT CHNAGE FOR THE FOOTER AND HEADER"
+
+**Root cause.** `renderModernHeader` used a JS variable `accent` sourced
+from `options.accentColor || accentColors[invoiceType]`. It never read
+`pdfAccent` from user settings, so the coloured header block stayed
+whatever the invoice-type default was even after the user picked a
+different accent.
+
+**Fix.** Accent variable now flows through `pdfAccent` when
+`userColorsEnabled` is true:
+
+```js
+const accent = options.accentColor
+  || (_ps.userColorsEnabled && _ps.pdfAccent)
+  || accentColors[invoiceType]
+  || accentColors['tax-invoice'];
+```
+
+Verified: `pdfAccent: '#7c3aed'` (purple) → modern-header background
+computed as `rgb(124, 58, 237)` ✓
+
+### Verified — preset ACTIVE state (v1.9.13 change stands)
+
+The `activePresetId` fix from v1.9.13 was correct on inspection. Now
+also verified in a real browser: seeding `activePresetId: 'colorful'`
+with `pdfTemplate: 'modern'` (which Modern and Enterprise also use)
+shows the ACTIVE badge on Colorful only, not on the two other cards
+that share the pdfTemplate value.
+
+### Process fix — verify before shipping
+
+Bought playwright, wrote three headless tests, ran them, watched them
+pass, then committed. Should have done this in v1.9.13 before claiming
+the fix worked. Won't ship UI changes on trust again.
+
+### Notes
+
+- The v1.9.13 data-attribute CSS is left in place as a defense-in-depth
+  fallback but the inline styles are the load-bearing path.
+- Dashboard rendering issue in one screenshot (date input showing
+  "n-yyyy", Columns button clipped) is a pre-existing narrow-viewport
+  layout bug and untouched by v1.9.13/14. Filed for a separate pass.
+
+---
+
 ## [1.9.13] — 2026-07-08
 
 Bug bash from user screenshots: three concrete issues confirmed and
