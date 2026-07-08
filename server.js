@@ -1398,3 +1398,8 @@ function startRenderServer(port) {
 // This kicks off your updated server execution safely
 setTimeout(processDueRecurring, 3000);
 setInterval(processDueRecurring, 24 * 60 * 60 * 1000);
+
+// Force the old duplicate function to disable itself entirely
+function startServer(port) {
+  console.log("Safely bypassed the duplicate background port loop.");
+}
