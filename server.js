@@ -1142,18 +1142,16 @@ process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
 // every byte stays on the user's machine, which the privacy promise depends on.
 let activeServer = null;
 function startServer(port) {
-// Add this line right here at the top of the function:
+  // FORCE Render's environment port to take priority over the passed 'port' argument
   const finalPort = process.env.PORT || port;
-  
-  // Use finalPort instead of port inside app.listen
-  const server = app.listen(port, '0.0.0.0', () => {
+
+  // Bind to finalPort instead of port
+  const server = app.listen(finalPort, '0.0.0.0', () => {
     activeServer = server;
-    // Persist the chosen port — the .bat launcher reads this for the browser URL.
-    // Writing on EVERY successful boot means: if our preferred 47371 was busy and
-    // we landed on 47372 instead, next launch tries 47372 first (cuts collision
-    // scans in half on repeated reboots of whatever was holding 47371).
-    try { fs.writeFileSync(PORT_FILE, String(port), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  Free GST Billing Software running at http://localhost:${port}`);
+    
+    // Save finalPort so internal app configurations sync up
+    try { fs.writeFileSync(PORT_FILE, String(finalPort), 'utf-8'); } catch { /* ignore */ }
+    console.log(`\n  Free GST Billing Software running at http://0.0.0.0:${finalPort}`);
     console.log(`  Data stored in: ${DATA_DIR}\n`);
   });
   server.on('error', (err) => {
