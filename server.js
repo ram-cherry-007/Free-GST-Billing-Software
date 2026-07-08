@@ -1400,6 +1400,6 @@ setTimeout(processDueRecurring, 3000);
 setInterval(processDueRecurring, 24 * 60 * 60 * 1000);
 
 // Force the old duplicate function to disable itself entirely
-function startServer(port) {
+function bypassLoop(port) {
   console.log("Safely bypassed the duplicate background port loop.");
 }
