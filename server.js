@@ -1141,37 +1141,28 @@ process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
 // Bound to 127.0.0.1 explicitly so the server can NEVER be reached from the LAN —
 // every byte stays on the user's machine, which the privacy promise depends on.
 let activeServer = null;
-function startServer(port) {
-  // FORCE Render's environment port to take priority over the passed 'port' argument
-  const finalPort = process.env.PORT || port;
+function startRenderServer(port) {
+    const finalPort = process.env.PORT || port;
 
-  // Bind to finalPort instead of port
-  const server = app.listen(finalPort, '0.0.0.0', () => {
-    activeServer = server;
-    
-    // Save finalPort so internal app configurations sync up
-    try { fs.writeFileSync(PORT_FILE, String(finalPort), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  Free GST Billing Software running at http://0.0.0.0:${finalPort}`);
-    console.log(`  Data stored in: ${DATA_DIR}\n`);
-  });
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE' && port < STARTING_PORT + MAX_PORT_SCAN) {
-      console.log(`  Port ${port} is busy, trying ${port + 1}...`);
-      startServer(port + 1);
-    } else if (err.code === 'EADDRINUSE') {
-      // We've exhausted the scan range. Tell the OS to pick anything free — at
-      // this point the user has 50+ apps fighting for the 47371-47421 range,
-      // which we treat as "do whatever works" rather than failing to start.
-      console.warn(`  Scanned ${MAX_PORT_SCAN} ports from ${STARTING_PORT} — letting OS assign a free one.`);
-      startServer(0);
-    } else {
-      console.error(`  Failed to start server: ${err.message}`);
-      // Persist the failure so the user has a breadcrumb when the silent
-      // launcher exits without any visible window.
-      logFatal(err, 'startup');
-      process.exit(1);
-    }
-  });
+    const server = app.listen(finalPort, "0.0.0.0", () => {
+        activeServer = server;
+        try {
+            fs.writeFileSync(PORT_FILE, String(finalPort), "utf-8");
+        } catch {}
+
+        console.log(`Free GST Billing Software running on port ${finalPort}`);
+    });
+
+    server.on("error", (err) => {
+        if (err.code === "EADDRINUSE" && port < STARTING_PORT + MAX_PORT_SCAN) {
+            startRenderServer(port + 1);
+        } else if (err.code === "EADDRINUSE") {
+            startRenderServer(0);
+        } else {
+            console.error(err);
+            process.exit(1);
+        }
+    });
 }
 
 // Graceful shutdown — taskkill /f from Stop FreeGSTBill.bat can interrupt a
@@ -1371,7 +1362,7 @@ function processDueRecurring() {
   }
 }
 
-//startServer(STARTING_PORT);
+startRenderServer(Number(process.env.PORT) || STARTING_PORT);
 // Change the function name to startRenderServer
 function startRenderServer(port) {
   const finalPort = process.env.PORT || port;
