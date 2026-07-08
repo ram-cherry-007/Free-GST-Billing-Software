@@ -1296,6 +1296,32 @@ textarea.form-input { resize: vertical; min-height: 60px; }
 .print-settings-body input { max-width: 100%; box-sizing: border-box; }
 .print-settings-preview-pane { overflow: hidden; }
 
+/* v1.9.12 — Dark-mode fixes for the Print Settings preview pane and the
+   invoice-preview inside it. The invoice preview always renders on a
+   white canvas (invoices are printed on white paper), so its inner text
+   uses light-on-white assumptions. In app dark mode, the pane container
+   is dark but the invoice inside needs to keep its white paper feel. */
+[data-theme="dark"] .print-settings-preview-pane {
+  background: var(--card, #1e293b) !important;
+  border: 1px solid var(--border-color, #334155);
+}
+[data-theme="dark"] .print-settings-preview-pane > div:last-child {
+  background: #ffffff !important;  /* preview canvas stays white paper */
+}
+[data-theme="dark"] .print-settings-preview-pane .invoice-preview-container,
+[data-theme="dark"] .print-settings-preview-pane .invoice-preview-container * {
+  color-scheme: light;
+}
+/* Preset card contrast fix — the coloured swatch strip could look muddy
+   on the dark card background. Add a subtle inner divider. */
+[data-theme="dark"] .print-settings-body button[title] {
+  background: var(--bg-secondary, #0f172a) !important;
+}
+[data-theme="dark"] .print-settings-body button[title] span,
+[data-theme="dark"] .print-settings-body button[title] strong {
+  color: var(--text, #f1f5f9);
+}
+
 /* v1.9.4 — Accessibility improvements */
 button:focus-visible,
 select:focus-visible,
@@ -1339,6 +1365,29 @@ a:focus-visible {
 }
 .invoice-preview-container[data-user-colors="1"] .inv-title {
   color: var(--pdf-primary-text, #0f172a) !important;
+}
+
+/* v1.9.12 — Template-corporate has a hardcoded dark navy gradient header.
+   User colors were forcing the title/business-name/meta text to
+   --pdf-primary-text (also dark), producing dark-on-dark invisibility.
+   Force header text to the accent-text color (white by default) when
+   the template paints a dark header. Higher specificity than the plain
+   `.invoice-preview-container[data-user-colors="1"] .inv-title` rule. */
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-title,
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-business-name,
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-meta-value,
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-business-details p,
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-header * {
+  color: #ffffff !important;
+}
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-meta-label {
+  color: #cbd5e1 !important;
+}
+/* Same treatment for template-modern which paints its own coloured header
+   block via the JSX renderModernHeader (background: accent). */
+.invoice-preview-container[data-user-colors="1"].template-modern .inv-header-modern *,
+.invoice-preview-container[data-user-colors="1"].template-modern .inv-title {
+  color: var(--pdf-accent-text, #ffffff) !important;
 }
 
 /* A4 Landscape — 297 × 210 mm. Same styles as portrait A4 but wider.

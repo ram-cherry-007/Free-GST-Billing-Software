@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.12] — 2026-07-08
+
+Two-part fix reported from screenshots: title text on the Corporate /
+IT Services templates was rendering dark-on-dark (invisible), and app
+dark mode wasn't fully handled for the new split-view preview pane.
+User asked for "presets so perfect users don't need to make changes."
+
+### Fixed — Title text no longer invisible on dark-header templates
+
+**Root cause.** `.template-corporate .inv-header` has a hardcoded dark
+navy gradient. When a preset enables user colors (all v1.9.9+ presets
+do), the CSS rule `.invoice-preview-container[data-user-colors="1"]
+.inv-title { color: var(--pdf-primary-text) !important }` fired for the
+title. For Corporate that's `#0b1e3f` (also dark navy) → invisible
+against the dark gradient. The existing `.template-corporate .inv-title
+{ color: #fff !important }` was beaten by the higher-specificity
+attribute selector.
+
+**Fix.** Added a compound rule that wins the specificity war:
+
+```css
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-title,
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-business-name,
+.invoice-preview-container[data-user-colors="1"].template-corporate .inv-header * {
+  color: #ffffff !important;
+}
+```
+
+Same treatment applied to `.template-modern` for the accent-coloured
+header block. Result: Corporate and IT Services presets now show a
+crisp white title on their dark headers, out of the box — no user
+adjustment needed.
+
+### Fixed — App dark mode for Print Settings preview pane
+
+- Preview pane container now uses `--card` background with a proper
+  border in dark mode instead of just inheriting the page background
+  and blending in.
+- Inner preview canvas stays white (invoices are paper — always white)
+  regardless of app theme.
+- Preset card backgrounds get `--bg-secondary` in dark mode so the
+  color-swatch strips have better contrast against the card surface.
+
+### Notes
+
+- No preset color values were changed — the fix is a CSS specificity
+  correction. All existing invoices, and every preset's palette,
+  continue exactly as designed.
+- Existing `.template-corporate` CSS still handles the header block
+  gradient; only the specificity for user-color overrides changed.
+
+---
+
 ## [1.9.11] — 2026-07-08
 
 Fixes the "light text on printed PDF" complaint (user shared a photo:
