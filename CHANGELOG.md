@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.7] — 2026-04-30
+
+Emergency hotfix: v1.9.5 shipped a server-side bug that prevented the
+new features from working AT ALL. Discovered by smoke test.
+
+### Fixed — Server refused to start due to duplicate identifier
+
+`v1.9.5` declared `const TRASH_DIR` inside the new backup code, but
+the file already had `const TRASH_DIR = path.join(__dirname, 'Trash')`
+at line 516 (from an earlier PDF-trash feature). Node.js rejected the
+module with `SyntaxError: Identifier 'TRASH_DIR' has already been
+declared` — server crashed immediately on `node server.js`.
+
+**Fix**: renamed my new constant to `BILL_TRASH_DIR` and updated all
+references. The two "trash" concepts now coexist:
+- `TRASH_DIR` (`./Trash/`) — soft-delete for saved PDF files
+- `BILL_TRASH_DIR` (`./data/trash/`) — soft-delete for invoice JSONs
+
+### Fixed — New endpoints returned 404 (registered after SPA catch-all)
+
+`v1.9.5` added `GET /api/backups`, `GET /api/trash`, `POST /api/backups/:date/restore`,
+etc. at the end of `server.js` — AFTER the SPA catch-all
+`app.get('{*path}', ...)` that returns 404 for any `/api/*` path not
+already matched.
+
+Result: **the entire backup + trash feature was non-functional in v1.9.5
+even though the code existed**. `GET /api/backups` returned `404 { error: "No such endpoint" }`.
+Only POST endpoints worked (catch-all only intercepts GETs).
+
+**Fix**: moved the entire block (constants + helpers + endpoints) to
+before the SPA catch-all. Deleted the now-duplicated block that lived
+after.
+
+### Smoke test coverage added going forward
+
+The bug would have been caught by a 30-second smoke test. Both bugs
+now caught before merge in future releases.
+
+### Backward compatibility
+
+- Users who updated to v1.9.5 saw the server fail to start and had to
+  roll back. v1.9.7 fixes both bugs cleanly.
+- No data migration needed. If a v1.9.5 install created `data/backups/`
+  or `data/trash/` before crashing, they're picked up automatically.
+
+---
+
 ## [1.9.6] — 2026-04-30
 
 Hotfix: Launcher was flooding the browser console with

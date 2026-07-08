@@ -657,6 +657,165 @@ const distPath = path.join(__dirname, 'dist');
 const indexPath = path.join(distPath, 'index.html');
 app.use(express.static(distPath, { fallthrough: true })); // fallthrough = ok if dist doesn't exist
 
+// ============================================================
+// v1.9.5 — Automatic daily backup + retention (keep last 30 days).
+// MUST be registered BEFORE the SPA catch-all below, otherwise
+// GET /api/backups and GET /api/trash get swallowed by the catch-all
+// and return 404. Bug discovered by smoke test after v1.9.5 shipped.
+// ============================================================
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+const BILL_TRASH_DIR = path.join(DATA_DIR, 'trash');
+function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
+
+function copyDirRecursive(src, dst) {
+  if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dst, entry.name);
+    if (entry.isDirectory()) copyDirRecursive(s, d);
+    else fs.copyFileSync(s, d);
+  }
+}
+
+function runDailyBackup() {
+  try {
+    ensureDir(BACKUPS_DIR);
+    const today = new Date().toISOString().split('T')[0];
+    const target = path.join(BACKUPS_DIR, today);
+    if (fs.existsSync(target)) return;
+    ensureDir(target);
+    const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === 'backups' || entry.name === 'trash') continue;
+      const src = path.join(DATA_DIR, entry.name);
+      const dst = path.join(target, entry.name);
+      if (entry.isDirectory()) copyDirRecursive(src, dst);
+      else fs.copyFileSync(src, dst);
+    }
+    console.log(`[backup] Daily snapshot saved: ${target}`);
+    const all = fs.readdirSync(BACKUPS_DIR).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
+    while (all.length > 30) {
+      const oldest = all.shift();
+      const oldestPath = path.join(BACKUPS_DIR, oldest);
+      try { fs.rmSync(oldestPath, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  } catch (err) {
+    console.warn('[backup] Daily backup failed:', err.message);
+  }
+}
+
+setTimeout(runDailyBackup, 5000);
+setInterval(runDailyBackup, 24 * 60 * 60 * 1000);
+
+// Backup management endpoints
+app.get('/api/backups', (req, res) => {
+  try {
+    ensureDir(BACKUPS_DIR);
+    const list = fs.readdirSync(BACKUPS_DIR)
+      .filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n))
+      .sort().reverse()
+      .map(name => {
+        const stat = fs.statSync(path.join(BACKUPS_DIR, name));
+        return { date: name, createdAt: stat.mtime.toISOString() };
+      });
+    res.json(list);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/backups/:date/restore', (req, res) => {
+  try {
+    // Path traversal defense — see v1.9.5.1 comment above.
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid backup date format' });
+    }
+    const backupDir = path.join(BACKUPS_DIR, date);
+    const resolved = path.resolve(backupDir);
+    const backupsRoot = path.resolve(BACKUPS_DIR);
+    if (resolved !== backupsRoot && !resolved.startsWith(backupsRoot + path.sep)) {
+      return res.status(400).json({ error: 'Invalid backup path' });
+    }
+    if (!fs.existsSync(backupDir)) return res.status(404).json({ error: 'Backup not found' });
+    const dataRoot = path.resolve(DATA_DIR);
+    const entries = fs.readdirSync(backupDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const src = path.join(backupDir, entry.name);
+      const dst = path.join(DATA_DIR, entry.name);
+      const dstResolved = path.resolve(dst);
+      if (!dstResolved.startsWith(dataRoot + path.sep) && dstResolved !== dataRoot) continue;
+      if (entry.isDirectory()) {
+        if (fs.existsSync(dst)) fs.rmSync(dst, { recursive: true, force: true });
+        copyDirRecursive(src, dst);
+      } else {
+        fs.copyFileSync(src, dst);
+      }
+    }
+    res.json({ success: true, restored: date });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/backups/now', (req, res) => {
+  runDailyBackup();
+  res.json({ success: true });
+});
+
+// ---- Trash bin (soft delete for invoices) ---------------------------------
+ensureDir(BILL_TRASH_DIR);
+
+app.get('/api/trash', (req, res) => {
+  try {
+    ensureDir(BILL_TRASH_DIR);
+    const files = fs.readdirSync(BILL_TRASH_DIR)
+      .filter(n => n.endsWith('.json'))
+      .map(name => {
+        try {
+          const p = path.join(BILL_TRASH_DIR, name);
+          const bill = readJSON(p, null);
+          const stat = fs.statSync(p);
+          return bill ? { ...bill, _trashedAt: stat.mtime.toISOString() } : null;
+        } catch { return null; }
+      })
+      .filter(Boolean);
+    res.json(files);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/trash/:id/restore', (req, res) => {
+  try {
+    const fname = safeFileName(req.params.id) + '.json';
+    const trashPath = path.join(BILL_TRASH_DIR, fname);
+    const billsPath = path.join(DATA_DIR, 'bills', fname);
+    if (!fs.existsSync(trashPath)) return res.status(404).json({ error: 'Not in trash' });
+    fs.renameSync(trashPath, billsPath);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/trash/:id', (req, res) => {
+  try {
+    const fname = safeFileName(req.params.id) + '.json';
+    const trashPath = path.join(BILL_TRASH_DIR, fname);
+    if (fs.existsSync(trashPath)) fs.unlinkSync(trashPath);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+function purgeOldTrash() {
+  try {
+    ensureDir(BILL_TRASH_DIR);
+    const now = Date.now();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+    for (const name of fs.readdirSync(BILL_TRASH_DIR)) {
+      const p = path.join(BILL_TRASH_DIR, name);
+      const stat = fs.statSync(p);
+      if (now - stat.mtime.getTime() > thirtyDays) {
+        try { fs.unlinkSync(p); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
+}
+setInterval(purgeOldTrash, 24 * 60 * 60 * 1000);
+
 app.get('{*path}', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
   if (fs.existsSync(indexPath)) {
@@ -985,187 +1144,3 @@ startServer(STARTING_PORT);
 // for users whose server stays up >24h.
 setTimeout(processDueRecurring, 3000);
 setInterval(processDueRecurring, 24 * 60 * 60 * 1000);
-
-// ============================================================
-// v1.9.5 — Automatic daily backup + retention (keep last 30 days).
-// Runs at boot + every 24h. Snapshots data/ files (excluding backups/
-// itself and node_modules) into data/backups/YYYY-MM-DD/.
-// User can restore any snapshot via the Backup Management UI.
-// ============================================================
-const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
-const TRASH_DIR = path.join(DATA_DIR, 'trash');
-function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
-
-function runDailyBackup() {
-  try {
-    ensureDir(BACKUPS_DIR);
-    const today = new Date().toISOString().split('T')[0];
-    const target = path.join(BACKUPS_DIR, today);
-    if (fs.existsSync(target)) return; // already backed up today
-
-    ensureDir(target);
-    // Copy each top-level file/dir in DATA_DIR except the backups + trash dir themselves
-    const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.name === 'backups' || entry.name === 'trash') continue;
-      const src = path.join(DATA_DIR, entry.name);
-      const dst = path.join(target, entry.name);
-      if (entry.isDirectory()) {
-        copyDirRecursive(src, dst);
-      } else {
-        fs.copyFileSync(src, dst);
-      }
-    }
-    console.log(`[backup] Daily snapshot saved: ${target}`);
-
-    // Retention: keep last 30 backups only
-    const all = fs.readdirSync(BACKUPS_DIR).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
-    while (all.length > 30) {
-      const oldest = all.shift();
-      const oldestPath = path.join(BACKUPS_DIR, oldest);
-      try { fs.rmSync(oldestPath, { recursive: true, force: true }); } catch { /* ignore */ }
-    }
-  } catch (err) {
-    console.warn('[backup] Daily backup failed:', err.message);
-  }
-}
-
-function copyDirRecursive(src, dst) {
-  if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dst, entry.name);
-    if (entry.isDirectory()) copyDirRecursive(s, d);
-    else fs.copyFileSync(s, d);
-  }
-}
-
-setTimeout(runDailyBackup, 5000);
-setInterval(runDailyBackup, 24 * 60 * 60 * 1000);
-
-// Backup management endpoints
-app.get('/api/backups', (req, res) => {
-  try {
-    ensureDir(BACKUPS_DIR);
-    const list = fs.readdirSync(BACKUPS_DIR)
-      .filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n))
-      .sort().reverse()
-      .map(name => {
-        const stat = fs.statSync(path.join(BACKUPS_DIR, name));
-        return { date: name, createdAt: stat.mtime.toISOString() };
-      });
-    res.json(list);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/backups/:date/restore', (req, res) => {
-  try {
-    // v1.9.5.1 — Path traversal defense. The :date param is user-controlled
-    // via URL, so a value like `../../etc` would resolve backupDir outside
-    // BACKUPS_DIR and the restore loop would then copy that content over
-    // the top of DATA_DIR — an arbitrary-file-overwrite primitive on the
-    // local filesystem. Two layers of defense:
-    //   1. Format check: must be YYYY-MM-DD (only shape ever written by
-    //      runDailyBackup + only shape listed by GET /api/backups)
-    //   2. Resolved-path check: even if regex allowed something exotic,
-    //      the resolved absolute path must live under BACKUPS_DIR
-    const date = req.params.date;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ error: 'Invalid backup date format' });
-    }
-    const backupDir = path.join(BACKUPS_DIR, date);
-    const resolved = path.resolve(backupDir);
-    const backupsRoot = path.resolve(BACKUPS_DIR);
-    if (resolved !== backupsRoot && !resolved.startsWith(backupsRoot + path.sep)) {
-      return res.status(400).json({ error: 'Invalid backup path' });
-    }
-    if (!fs.existsSync(backupDir)) return res.status(404).json({ error: 'Backup not found' });
-    // Copy every file/dir in the backup back to DATA_DIR (overwrites).
-    // We ALSO validate each entry's destination stays under DATA_DIR so a
-    // hypothetical malicious backup dir contents (e.g. one containing a
-    // symlink to /etc) can't smuggle writes elsewhere. Symlinks are
-    // followed by copyFileSync/copyDirRecursive on some platforms.
-    const dataRoot = path.resolve(DATA_DIR);
-    const entries = fs.readdirSync(backupDir, { withFileTypes: true });
-    for (const entry of entries) {
-      const src = path.join(backupDir, entry.name);
-      const dst = path.join(DATA_DIR, entry.name);
-      const dstResolved = path.resolve(dst);
-      if (!dstResolved.startsWith(dataRoot + path.sep) && dstResolved !== dataRoot) {
-        continue; // skip suspicious entry names like '..' or absolute paths
-      }
-      if (entry.isDirectory()) {
-        if (fs.existsSync(dst)) fs.rmSync(dst, { recursive: true, force: true });
-        copyDirRecursive(src, dst);
-      } else {
-        fs.copyFileSync(src, dst);
-      }
-    }
-    res.json({ success: true, restored: date });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/backups/now', (req, res) => {
-  runDailyBackup();
-  res.json({ success: true });
-});
-
-// ---- Trash bin (soft delete for invoices) --------------------------------
-// v1.9.5 — DELETE /api/bills/:id now moves the file to data/trash/ instead
-// of unlinking. Users can restore within 30 days. Purge removes forever.
-ensureDir(TRASH_DIR);
-
-app.get('/api/trash', (req, res) => {
-  try {
-    ensureDir(TRASH_DIR);
-    const files = fs.readdirSync(TRASH_DIR)
-      .filter(n => n.endsWith('.json'))
-      .map(name => {
-        try {
-          const p = path.join(TRASH_DIR, name);
-          const bill = readJSON(p, null);
-          const stat = fs.statSync(p);
-          return bill ? { ...bill, _trashedAt: stat.mtime.toISOString() } : null;
-        } catch { return null; }
-      })
-      .filter(Boolean);
-    res.json(files);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/trash/:id/restore', (req, res) => {
-  try {
-    const fname = safeFileName(req.params.id) + '.json';
-    const trashPath = path.join(TRASH_DIR, fname);
-    const billsPath = path.join(DATA_DIR, 'bills', fname);
-    if (!fs.existsSync(trashPath)) return res.status(404).json({ error: 'Not in trash' });
-    fs.renameSync(trashPath, billsPath);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/trash/:id', (req, res) => {
-  try {
-    const fname = safeFileName(req.params.id) + '.json';
-    const trashPath = path.join(TRASH_DIR, fname);
-    if (fs.existsSync(trashPath)) fs.unlinkSync(trashPath);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Purge old trash items (>30 days) — runs daily alongside backup
-function purgeOldTrash() {
-  try {
-    ensureDir(TRASH_DIR);
-    const now = Date.now();
-    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-    for (const name of fs.readdirSync(TRASH_DIR)) {
-      const p = path.join(TRASH_DIR, name);
-      const stat = fs.statSync(p);
-      if (now - stat.mtime.getTime() > thirtyDays) {
-        try { fs.unlinkSync(p); } catch { /* ignore */ }
-      }
-    }
-  } catch { /* ignore */ }
-}
-setInterval(purgeOldTrash, 24 * 60 * 60 * 1000);
