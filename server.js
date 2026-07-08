@@ -1369,7 +1369,7 @@ function processDueRecurring() {
   }
 }
 
-startServer(STARTING_PORT);
+//startServer(STARTING_PORT);
 // Change the function name to startRenderServer
 function startRenderServer(port) {
   const finalPort = process.env.PORT || port;
