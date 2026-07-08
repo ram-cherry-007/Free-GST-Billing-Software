@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.8] — 2026-07-08
+
+Print & PDF Settings gets a split-view redesign. Users can now see every
+change reflected in the preview *without scrolling* — settings stay on
+the left, preview stays visible on the right.
+
+### Added — Sticky live preview with paper-type tabs
+
+**The problem.** Print & PDF Settings had grown to 70+ toggles across
+20+ sections. To see how a color/font/label change would render, users
+had to scroll all the way down to the "Live preview" block at the
+bottom, tweak, scroll back up, tweak, scroll down again. Painful.
+
+**The fix.** New two-column layout:
+
+- **Left column** — all settings groups, scrollable as usual.
+- **Right column** — sticky preview pane that stays glued to the top of
+  the viewport as you scroll. Every setting change re-renders it in real
+  time.
+
+**Preview mode tabs** at the top of the preview pane let users switch
+what they're looking at:
+
+- **📄 PDF (A4)** — full A4 sheet, scaled to fit the pane. Best for
+  color/font/margin tweaks that only matter on paper.
+- **🖨 Thermal (80mm)** — 80mm receipt render at 1:1. Best for thermal
+  layout, compact-mode, and section-label tweaks.
+- **⊞ Split view** — both renders side-by-side. Best when you're setting
+  something (like brand color) that has to work in both.
+
+### Improved — Mobile-friendly stacking
+
+On screens narrower than 900px the layout collapses to a single column
+with the preview appearing below the settings (not sticky, since sticky
+on a small screen would eat the viewport). Preview still updates live.
+
+### Notes
+
+- No settings were changed, added, or removed. Only the layout of the
+  Print & PDF Settings page changed.
+- Every existing setting works exactly as before — this is a UX-only
+  release.
+
+---
+
 ## [1.9.7] — 2026-04-30
 
 Emergency hotfix: v1.9.5 shipped a server-side bug that prevented the

@@ -22,6 +22,10 @@ export default function PrintSettings() {
   const [showTestPreview, setShowTestPreview] = useState(false);
   const [profile, setProfile] = useState(null);
   const previewRef = useRef(null);
+  // v1.9.8 — preview mode toggle so users see the right layout for the
+  // change they're making. Sticky preview on the right stays in view as
+  // they scroll settings on the left.
+  const [previewMode, setPreviewMode] = useState('pdf'); // 'pdf' | 'thermal' | 'both'
 
   useEffect(() => { getProfile().then(setProfile).catch(() => {}); }, []);
 
@@ -143,7 +147,17 @@ export default function PrintSettings() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginTop: '1.25rem' }}>
+      {/* v1.9.8 — Split layout: settings scroll on the left, preview stays sticky on the right */}
+      <div className="print-settings-layout" style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 500px)',
+        gap: '1.25rem',
+        marginTop: '1.25rem',
+        alignItems: 'flex-start',
+      }}>
+        <div className="print-settings-body" style={{ minWidth: 0 }}>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
         {/* TYPOGRAPHY */}
         <SettingGroup title="Typography">
           <SelectRow label="Font family" value={settings.fontFamily} onChange={v => set({ fontFamily: v })}
@@ -748,34 +762,110 @@ export default function PrintSettings() {
         )}
       </div>
 
-      {/* LIVE PREVIEW */}
-      <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-          <strong style={{ fontSize: '0.9rem' }}>
-            <Info size={14} style={{ display: 'inline', verticalAlign: -2, marginRight: 5 }} />
-            Live preview
-          </strong>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Sample invoice · 80mm thermal</span>
-        </div>
-        <div style={{ overflow: 'auto', maxHeight: '600px', background: '#fff', padding: '1rem', borderRadius: 6 }}>
-          <InvoicePreview
-            ref={previewRef}
-            profile={sample.profile}
-            client={sample.client}
-            details={sample.details}
-            items={sample.items}
-            totals={sample.totals}
-            invoiceType={sample.invoiceType}
-            options={previewInvoiceOptions}
-            customTerms=""
-            customNotes=""
-            extraSections={[]}
-          />
-        </div>
-      </div>
+        </div>{/* end .print-settings-body */}
 
-      {/* Hidden preview for the actual test-print rendering (may need
-          a bigger scale / different container than the on-screen preview). */}
+        {/* v1.9.8 — Sticky preview pane. Stays in view while user scrolls
+             settings on the left. Tab toggle at top switches between the
+             PDF (A4) and Thermal (80mm) render. Split view shows both. */}
+        <div className="print-settings-preview-pane" style={{
+          position: 'sticky', top: '1rem',
+          maxHeight: 'calc(100vh - 2rem)',
+          padding: '1rem',
+          background: 'var(--bg-secondary)',
+          borderRadius: 8,
+          display: 'flex', flexDirection: 'column', gap: '0.75rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <strong style={{ fontSize: '0.9rem' }}>
+              <Info size={14} style={{ display: 'inline', verticalAlign: -2, marginRight: 5 }} />
+              Live preview
+            </strong>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Updates as you type</span>
+          </div>
+
+          {/* Preview mode tabs */}
+          <div style={{ display: 'flex', gap: '0.25rem', background: 'var(--card)', padding: '0.25rem', borderRadius: 6 }}>
+            {[
+              ['pdf', '📄 PDF (A4)'],
+              ['thermal', '🖨 Thermal (80mm)'],
+              ['both', '⊞ Split view'],
+            ].map(([key, label]) => (
+              <button key={key} type="button"
+                onClick={() => setPreviewMode(key)}
+                style={{
+                  flex: 1, padding: '0.35rem', border: 'none', borderRadius: 4,
+                  background: previewMode === key ? 'var(--primary)' : 'transparent',
+                  color: previewMode === key ? '#fff' : 'var(--text)',
+                  fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Preview canvas — scrolls internally so left settings scroll independently */}
+          <div style={{ overflow: 'auto', flex: 1, background: '#fff', padding: '0.75rem', borderRadius: 6, minHeight: 200 }}>
+            {previewMode === 'both' ? (
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                <div style={{ transform: 'scale(0.45)', transformOrigin: 'top left', width: '148mm' }}>
+                  <InvoicePreview
+                    profile={sample.profile}
+                    client={sample.client}
+                    details={sample.details}
+                    items={sample.items}
+                    totals={sample.totals}
+                    invoiceType={sample.invoiceType}
+                    options={{ ...previewInvoiceOptions, paperSize: 'a4' }}
+                    customTerms="" customNotes="" extraSections={[]}
+                  />
+                </div>
+                <div style={{ transform: 'scale(0.85)', transformOrigin: 'top left' }}>
+                  <InvoicePreview
+                    profile={sample.profile}
+                    client={sample.client}
+                    details={sample.details}
+                    items={sample.items}
+                    totals={sample.totals}
+                    invoiceType={sample.invoiceType}
+                    options={{ ...previewInvoiceOptions, paperSize: 'thermal80' }}
+                    customTerms="" customNotes="" extraSections={[]}
+                  />
+                </div>
+              </div>
+            ) : previewMode === 'pdf' ? (
+              <div style={{ transform: 'scale(0.55)', transformOrigin: 'top left', width: '210mm', height: 'fit-content' }}>
+                <InvoicePreview
+                  ref={previewRef}
+                  profile={sample.profile}
+                  client={sample.client}
+                  details={sample.details}
+                  items={sample.items}
+                  totals={sample.totals}
+                  invoiceType={sample.invoiceType}
+                  options={{ ...previewInvoiceOptions, paperSize: 'a4' }}
+                  customTerms="" customNotes="" extraSections={[]}
+                />
+              </div>
+            ) : (
+              <div>
+                <InvoicePreview
+                  ref={previewRef}
+                  profile={sample.profile}
+                  client={sample.client}
+                  details={sample.details}
+                  items={sample.items}
+                  totals={sample.totals}
+                  invoiceType={sample.invoiceType}
+                  options={{ ...previewInvoiceOptions, paperSize: 'thermal80' }}
+                  customTerms="" customNotes="" extraSections={[]}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>{/* end .print-settings-layout */}
+
+      {/* Hidden preview for the actual test-print rendering */}
       {showTestPreview && null}
     </div>
   );

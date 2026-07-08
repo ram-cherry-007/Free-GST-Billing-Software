@@ -1258,6 +1258,23 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   border-color: #334155 !important;
 }
 
+/* v1.9.8 — Print Settings split layout. Sticky preview on the right;
+   collapses to stacked on narrow screens so mobile users don't get a
+   tiny preview crushed to 100px wide. */
+@media (max-width: 900px) {
+  .print-settings-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .print-settings-preview-pane {
+    position: relative !important;
+    top: auto !important;
+    max-height: 500px !important;
+  }
+}
+/* Make sure preview inside doesn't overflow layout on any width */
+.print-settings-preview-pane { overflow: hidden; }
+.print-settings-preview-pane > div:last-child > * { max-width: 100%; }
+
 /* v1.9.4 — Accessibility improvements */
 button:focus-visible,
 select:focus-visible,
