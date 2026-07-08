@@ -1364,29 +1364,6 @@ function processDueRecurring() {
 
 startRenderServer(Number(process.env.PORT) || STARTING_PORT);
 // Change the function name to startRenderServer
-function startRenderServer(port) {
-  const finalPort = process.env.PORT || port;
-
-  const server = app.listen(finalPort, '0.0.0.0', () => {
-    activeServer = server;
-    try { fs.writeFileSync(PORT_FILE, String(finalPort), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  Free GST Billing Software running at http://0.0.0.0:${finalPort}`);
-    console.log(`  Data stored in: ${DATA_DIR}\n`);
-  });
-
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE' && port < STARTING_PORT + MAX_PORT_SCAN) {
-      console.log(`  Port ${port} is busy, trying ${port + 1}...`);
-      startRenderServer(port + 1); // Update name here too
-    } else if (err.code === 'EADDRINUSE') {
-      console.warn(`  Scanned ${MAX_PORT_SCAN} ports from ${STARTING_PORT} — letting OS assign a free one.`);
-      startRenderServer(0); // Update name here too
-    } else {
-      console.error(`  Failed to start server: ${err.message}`);
-      process.exit(1);
-    }
-  });
-}
 
 // This kicks off your updated server execution safely
 setTimeout(processDueRecurring, 3000);
