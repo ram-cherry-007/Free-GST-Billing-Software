@@ -1396,6 +1396,5 @@ function startRenderServer(port) {
 }
 
 // This kicks off your updated server execution safely
-startRenderServer(STARTING_PORT); 
 setTimeout(processDueRecurring, 3000);
 setInterval(processDueRecurring, 24 * 60 * 60 * 1000);
