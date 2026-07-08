@@ -18,7 +18,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 // by any common software we could find. The persisted `data/port.txt` always
 // wins over this default — so a single user who genuinely needs 47371 for
 // something else can edit that file and we'll respect it forever.
-const DEFAULT_PORT = 47371;
+const DEFAULT_PORT = Number(process.env.PORT) || 47371;
 const PORT_FILE = path.join(__dirname, 'data', 'port.txt');
 
 // Read the persisted port (if any) — written once on first successful start
@@ -30,7 +30,7 @@ const persistedPort = (() => {
     return (isFinite(n) && n >= 1024 && n <= 65535) ? n : null;
   } catch { return null; }
 })();
-const STARTING_PORT = persistedPort || DEFAULT_PORT;
+const STARTING_PORT = Number(process.env.PORT) || persistedPort || DEFAULT_PORT;
 const MAX_PORT_SCAN = 50; // 47371 → 47420 is enough headroom for any conceivable collision
 
 const app = express();
