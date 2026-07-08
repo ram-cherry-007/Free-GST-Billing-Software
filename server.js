@@ -45,22 +45,39 @@ const app = express();
 // rejected. The Vite dev server proxies /api → us so its origin is
 // also localhost.
 app.use((req, res, next) => {
+  // Allow static files and homepage
+  if (
+    req.path === "/" ||
+    req.path.startsWith("/assets/") ||
+    req.path === "/favicon.ico"
+  ) {
+    return next();
+  }
+
   const origin = req.headers.origin;
+
   const allow =
     !origin ||
     /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
     /^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin) ||
-    /^https?:\/\/\[::1\](:\d+)?$/i.test(origin);
+    /^https?:\/\/\[::1\](:\d+)?$/i.test(origin) ||
+    /^https:\/\/.*\.onrender\.com$/i.test(origin);
+
   if (!allow) {
-    return res.status(403).json({ error: 'Cross-origin request refused' });
+    return res.status(403).json({ error: "Cross-origin request refused" });
   }
+
   if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   }
-  if (req.method === 'OPTIONS') return res.status(204).end();
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
   next();
 });
 
