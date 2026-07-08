@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.9.10] — 2026-07-08
+
+Design presets now shape the thermal receipt too, not just the PDF.
+Reported by user with a screenshot: switching between Modern / Corporate
+/ Minimalist visibly changed the PDF but the thermal preview looked
+identical every time.
+
+### Fixed — Presets now affect PDF + Thermal render
+
+Each preset now sets thermal-relevant fields on top of the PDF palette:
+`fontFamily`, `fontWeight`, `fontSize`, `lineSpacing`, `allCaps`,
+`headerAlign`, `headerCaps`, `contrast` — and a couple of content flags
+like `showTagline` and `showRateLine` where they define the vibe.
+
+**Distinct thermal personalities per preset:**
+
+- **Modern** — Sans, bold, mixed case, comfortable spacing.
+- **Classic** — Mono ULTRA-BOLD ALL CAPS, compact spacing (SMART BAZAAR
+  / Reliance receipt look).
+- **Corporate** — Sans bold, comfortable spacing, header caps only.
+- **Minimalist** — Sans normal weight, left-aligned header, no caps,
+  airy spacing.
+- **Colorful** — Sans bold, tagline shown, friendly.
+- **Compact** — Mono ULTRA-BOLD ALL CAPS small font, hides rate line to
+  fit more per receipt.
+
+### Added — "affects PDF + Thermal" label on the picker
+
+Small hint next to the "Choose a design" heading so users understand
+the presets touch both output formats.
+
+### Notes
+
+- Colors remain PDF-only — thermal printers are B&W by physics, no
+  amount of settings can change that.
+- Every field a preset touches is still fully editable in the sections
+  below.
+
+---
+
 ## [1.9.9] — 2026-07-08
 
 Follows immediately on v1.9.8. Fixes two layout bugs reported from a

@@ -6,87 +6,126 @@ import { getProfile } from '../store';
 import { DEFAULT_PRINT_SETTINGS, getPrintSettings, savePrintSettings, buildSampleInvoice, BUSINESS_PRESETS, applyBusinessPreset, LABEL_PRESETS } from '../utils/printSettings';
 
 // v1.9.9 — Visual design presets. Each is a starting point that flips
-// the pdfTemplate + color palette + a couple of layout tweaks in one
-// click. Users can still edit every individual setting below afterwards
-// (the preset just seeds sensible defaults for the vibe they picked).
+// the pdfTemplate + color palette + thermal typography + a couple of
+// layout tweaks in one click. Users can still edit every individual
+// setting below afterwards (the preset just seeds sensible defaults for
+// the vibe they picked).
+//
+// v1.9.10 — presets now shape BOTH the PDF and the thermal render.
+// Colors are PDF-only (thermal printers are B&W by physics), but font
+// family / weight / spacing / all-caps / header alignment / content
+// toggles all apply to both, so switching preset visibly changes the
+// thermal preview too.
 const DESIGN_PRESETS = [
   {
     id: 'modern',
     name: 'Modern',
     icon: '💎',
-    description: 'Blue accents, filled table header, subtle divider lines.',
+    description: 'Sans font, blue accents. Clean, tech-startup feel.',
     settings: {
+      // PDF
       pdfTemplate: 'modern',
       userColorsEnabled: true,
       pdfPrimaryText: '#0f172a', pdfMutedText: '#334155',
       pdfAccent: '#1e40af', pdfAccentText: '#ffffff',
       pdfHeaderBg: '#eef2ff', pdfDividerColor: '#cbd5e1',
+      // Thermal — sans, bold, comfortable, mixed case (modern feel)
+      fontFamily: 'sans', fontWeight: 'bold', fontSize: 'medium',
+      lineSpacing: 'normal', allCaps: false,
+      headerAlign: 'center', headerCaps: true, contrast: 'high',
     },
   },
   {
     id: 'classic',
     name: 'Classic',
     icon: '📜',
-    description: 'Traditional black-on-white. Best for formal invoices.',
+    description: 'Mono font, ALL CAPS. Traditional SMART BAZAAR receipt style.',
     settings: {
+      // PDF
       pdfTemplate: 'classic',
       userColorsEnabled: true,
       pdfPrimaryText: '#000000', pdfMutedText: '#333333',
       pdfAccent: '#000000', pdfAccentText: '#ffffff',
       pdfHeaderBg: '#ffffff', pdfDividerColor: '#000000',
+      // Thermal — mono ultra-bold ALL CAPS (max legibility, classic look)
+      fontFamily: 'mono', fontWeight: 'ultra', fontSize: 'medium',
+      lineSpacing: 'compact', allCaps: true,
+      headerAlign: 'center', headerCaps: true, contrast: 'ultra',
     },
   },
   {
     id: 'corporate',
     name: 'Corporate',
     icon: '🏢',
-    description: 'Deep navy + gold accents. Serious, premium feel.',
+    description: 'Sans + gold. Bold headers, comfortable spacing.',
     settings: {
+      // PDF
       pdfTemplate: 'corporate',
       userColorsEnabled: true,
       pdfPrimaryText: '#0b1e3f', pdfMutedText: '#334155',
       pdfAccent: '#0b1e3f', pdfAccentText: '#f5c542',
       pdfHeaderBg: '#f1f5f9', pdfDividerColor: '#0b1e3f',
+      // Thermal — sans, bold, comfortable, header caps only
+      fontFamily: 'sans', fontWeight: 'bold', fontSize: 'medium',
+      lineSpacing: 'comfortable', allCaps: false,
+      headerAlign: 'center', headerCaps: true, contrast: 'high',
     },
   },
   {
     id: 'minimalist',
     name: 'Minimalist',
     icon: '⚪',
-    description: 'Ultra clean. No filled headers, just hairlines.',
+    description: 'Ultra clean. Airy spacing, no bold clutter.',
     settings: {
+      // PDF
       pdfTemplate: 'minimalist',
       userColorsEnabled: true,
       pdfPrimaryText: '#111111', pdfMutedText: '#666666',
       pdfAccent: '#111111', pdfAccentText: '#ffffff',
       pdfHeaderBg: '#ffffff', pdfDividerColor: '#dddddd',
+      // Thermal — sans, normal weight, comfortable, left header, no caps
+      fontFamily: 'sans', fontWeight: 'normal', fontSize: 'medium',
+      lineSpacing: 'comfortable', allCaps: false,
+      headerAlign: 'left', headerCaps: false, contrast: 'normal',
     },
   },
   {
     id: 'colorful',
     name: 'Colorful',
     icon: '🎨',
-    description: 'Warm orange + teal. Retail / cafe / boutique feel.',
+    description: 'Warm orange. Retail / cafe / boutique feel.',
     settings: {
+      // PDF
       pdfTemplate: 'modern',
       userColorsEnabled: true,
       pdfPrimaryText: '#1a1a1a', pdfMutedText: '#4a4a4a',
       pdfAccent: '#ea580c', pdfAccentText: '#ffffff',
       pdfHeaderBg: '#fff7ed', pdfDividerColor: '#fdba74',
+      // Thermal — sans bold, normal spacing, show tagline for friendly touch
+      fontFamily: 'sans', fontWeight: 'bold', fontSize: 'medium',
+      lineSpacing: 'normal', allCaps: false,
+      headerAlign: 'center', headerCaps: true, contrast: 'high',
+      showTagline: true,
     },
   },
   {
     id: 'minimal',
     name: 'Compact',
     icon: '📄',
-    description: 'Small font, tight rows. Fits more lines per page.',
+    description: 'Mono ALL CAPS, tight rows. Max lines per receipt.',
     settings: {
+      // PDF
       pdfTemplate: 'minimal',
       userColorsEnabled: true,
       pdfPrimaryText: '#0f172a', pdfMutedText: '#475569',
       pdfAccent: '#0f172a', pdfAccentText: '#ffffff',
       pdfHeaderBg: '#f8fafc', pdfDividerColor: '#94a3b8',
       pdfFontScale: 0.9,
+      // Thermal — mono ultra-bold, small compact ALL CAPS (max density)
+      fontFamily: 'mono', fontWeight: 'ultra', fontSize: 'small',
+      lineSpacing: 'compact', allCaps: true,
+      headerAlign: 'center', headerCaps: true, contrast: 'ultra',
+      showRateLine: false,
     },
   },
 ];
@@ -254,7 +293,7 @@ export default function PrintSettings() {
         marginBottom: '1rem',
       }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '0.6rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: '0.9rem' }}>🎨 Choose a design</strong>
+          <strong style={{ fontSize: '0.9rem' }}>🎨 Choose a design <span style={{ fontSize: '0.65rem', fontWeight: 500, color: 'var(--text-muted)', marginLeft: 6 }}>affects PDF + Thermal</span></strong>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Click a design to start. Edit anything below.</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
